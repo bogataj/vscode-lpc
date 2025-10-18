@@ -2,6 +2,21 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.2] - 2025-10-18
+
+### Fixed
+- **Critical: Comment Content Now Ignored During Formatting**: Fixed formatter counting brackets/braces inside comments
+  - Comments (`//` and `/* */`) are now completely ignored when counting brackets for indentation
+  - Prevents indentation corruption when comments contain code-like syntax
+  - Added comprehensive comment skip logic in both bracket-counting loops
+  - Added preprocessor comment filtering for `; }` pattern detection
+  - Test cases added to verify comments don't leak formatting logic
+
+- **Function Name Highlighting**: Fixed function declarations not being syntax-highlighted
+  - Function names in declarations now properly colored (e.g., `void test_function()`)
+  - Moved function pattern matching earlier in grammar processing order
+  - Simplified regex pattern for better reliability
+
 ## [1.2.1] - 2025-10-18
 
 ### Added

@@ -680,6 +680,56 @@ void test_alignment() {
 }
 
 // ============================================================================
+// COMMENT FORMATTING TEST - Comments should NOT affect indentation
+// ============================================================================
+
+void test_comments_dont_leak_formatting() {
+    int x = 1;
+
+    // Test 1: Comment with unmatched opening brace {
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+
+    // Test 2: Comment with multiple braces {{ }} and parens ()
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+
+    // Test 3: Comment with unmatched closing brace }
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+
+    /* Test 4: Block comment with braces { } and parens () */
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+
+    /*
+     * Test 5: Multi-line block comment
+     * with braces { { { } } }
+     * and parentheses ( ) ( )
+     */
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+
+    if (x > 0) { // Comment with brace: if(y) { z = 1; }
+        write("Should be indented 2 levels\n");
+    }
+
+    if (x > 0) { /* inline block { } */
+        write("Should be indented 2 levels\n");
+    }
+
+    // Test 6: Comment with semicolon and brace: statement; }
+    if (x > 0) {
+        write("Should be indented 2 levels\n");
+    }
+}
+
+// ============================================================================
 // PRAGMAS AND COMPILER DIRECTIVES
 // ============================================================================
 

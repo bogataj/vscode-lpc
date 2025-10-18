@@ -55,7 +55,46 @@ class LPCDocumentFormattingEditProvider {
         }
     }
     formatLPCCode(code, options) {
-        const lines = code.split(/\r?\n/);
+        let lines = code.split(/\r?\n/);
+        // Preprocess: split lines that have statements followed by closing braces (e.g., "statement; }")
+        let preprocessedLines = [];
+        for (const line of lines) {
+            const trimmed = line.trim();
+            // Skip lines that are comments
+            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+                preprocessedLines.push(line);
+                continue;
+            }
+            // Remove comment portion from line before checking for ; } pattern
+            let codeOnly = trimmed;
+            const lineCommentPos = trimmed.indexOf('//');
+            if (lineCommentPos >= 0) {
+                codeOnly = trimmed.substring(0, lineCommentPos).trim();
+            }
+            const blockCommentPos = trimmed.indexOf('/*');
+            if (blockCommentPos >= 0) {
+                codeOnly = trimmed.substring(0, blockCommentPos).trim();
+            }
+            // Check if line ends with ; } or ; } followed by more closing braces
+            // BUT exclude one-liner functions (e.g., "function() { statement; }")
+            const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
+            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction) {
+                // Split the statement and closing braces
+                const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
+                if (match) {
+                    const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
+                    preprocessedLines.push(leadingSpaces + match[1].trim());
+                    preprocessedLines.push(leadingSpaces + match[2]);
+                }
+                else {
+                    preprocessedLines.push(line);
+                }
+            }
+            else {
+                preprocessedLines.push(line);
+            }
+        }
+        lines = preprocessedLines;
         let result = [];
         let indentLevel = 0;
         let inSwitch = false;
@@ -431,10 +470,46 @@ class LPCDocumentFormattingEditProvider {
             else if (!mergedWithPrevLine) {
                 result.push(formattedLine);
             }
+            // Track string and comment state in this line to skip their contents
+            let charInString = false;
+            let charInLineComment = false;
+            let charInBlockComment = false;
             for (let col = 0; col < formattedLine.length; col++) {
                 const char = formattedLine[col];
                 const nextChar = col + 1 < formattedLine.length ? formattedLine[col + 1] : '';
                 const prevChar = col > 0 ? formattedLine[col - 1] : '';
+                // Track string state (skip escaped quotes)
+                if (char === '"' && (col === 0 || formattedLine[col - 1] !== '\\')) {
+                    charInString = !charInString;
+                    continue;
+                }
+                // Skip everything inside strings
+                if (charInString) {
+                    continue;
+                }
+                // Track line comment state
+                if (!charInBlockComment && char === '/' && nextChar === '/') {
+                    charInLineComment = true;
+                }
+                // Skip everything inside line comments
+                if (charInLineComment) {
+                    continue;
+                }
+                // Track block comment state
+                if (char === '/' && nextChar === '*') {
+                    charInBlockComment = true;
+                    col++; // Skip the *
+                    continue;
+                }
+                if (charInBlockComment && char === '*' && nextChar === '/') {
+                    charInBlockComment = false;
+                    col++; // Skip the /
+                    continue;
+                }
+                // Skip everything inside block comments
+                if (charInBlockComment) {
+                    continue;
+                }
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
                     const restOfLine = formattedLine.substring(col + 2);
                     const isCast = restOfLine.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s*\)/);
@@ -487,10 +562,46 @@ class LPCDocumentFormattingEditProvider {
             }
             let openBraceCount = 0;
             let closeBraceCount = 0;
+            // Track string and comment state to skip counting braces inside them
+            let braceInString = false;
+            let braceInLineComment = false;
+            let braceInBlockComment = false;
             for (let i = 0; i < trimmed.length; i++) {
                 const char = trimmed[i];
                 const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
                 const prevChar = i > 0 ? trimmed[i - 1] : '';
+                // Track string state (skip escaped quotes)
+                if (char === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
+                    braceInString = !braceInString;
+                    continue;
+                }
+                // Skip everything inside strings
+                if (braceInString) {
+                    continue;
+                }
+                // Track line comment state
+                if (!braceInBlockComment && char === '/' && nextChar === '/') {
+                    braceInLineComment = true;
+                }
+                // Skip everything inside line comments
+                if (braceInLineComment) {
+                    continue;
+                }
+                // Track block comment state
+                if (char === '/' && nextChar === '*') {
+                    braceInBlockComment = true;
+                    i++; // Skip the *
+                    continue;
+                }
+                if (braceInBlockComment && char === '*' && nextChar === '/') {
+                    braceInBlockComment = false;
+                    i++; // Skip the /
+                    continue;
+                }
+                // Skip everything inside block comments
+                if (braceInBlockComment) {
+                    continue;
+                }
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
                     // LPC data structure opening - don't count for indentLevel
                 }

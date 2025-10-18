@@ -95,6 +95,11 @@ MIT License - see LICENSE file for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
+### 1.2.2 - 2025-10-18
+- **Critical Fix**: Comments now completely ignored during formatting - prevents indentation corruption
+- Fixed function name highlighting in declarations
+- Added comprehensive test cases for comment handling
+
 ### 1.2.1 - 2025-10-18
 - Added macro/constant highlighting for preprocessor defines and all-uppercase identifiers
 - Fixed closing parenthesis alignment in deeply nested lambda/closure structures

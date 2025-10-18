@@ -10,6 +10,9 @@
       "include": "#strings"
     },
     {
+      "include": "#function_definitions"
+    },
+    {
       "include": "#preprocessor"
     },
     {
@@ -38,9 +41,6 @@
     },
     {
       "include": "#operators"
-    },
-    {
-      "include": "#function_definitions"
     },
     {
       "include": "#arrays_mappings"
@@ -277,7 +277,7 @@
         {
           "comment": "All-uppercase identifiers typically used as macros (e.g., WL_NAME, H_MOVE_OBJECT0, SAVE_VERSION)",
           "name": "variable.other.constant.lpc",
-          "match": "\\b[A-Z][A-Z0-9_]{2,}\\b"
+          "match": "\\b[A-Z][A-Z0-9_]{2,}(?![A-Za-z0-9_])"
         },
         {
           "name": "constant.numeric.lpc",
@@ -332,9 +332,8 @@
       "patterns": [
         {
           "name": "meta.function.lpc",
-          "begin": "^\\s*((?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*\\s*((?:void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)(?:\\s*\\*)*?)\\s+(\\w+)\\s*\\(",
-          "end": "\\)",
-          "beginCaptures": {
+          "match": "^\\s*((?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*(void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\s*(\\**)\\s+(\\w+)\\s*\\(",
+          "captures": {
             "1": {
               "name": "storage.modifier.lpc"
             },
@@ -342,17 +341,12 @@
               "name": "storage.type.return.lpc"
             },
             "3": {
+              "name": "keyword.operator.lpc"
+            },
+            "4": {
               "name": "entity.name.function.lpc"
             }
-          },
-          "patterns": [
-            {
-              "include": "#types"
-            },
-            {
-              "include": "#modifiers"
-            }
-          ]
+          }
         }
       ]
     },
