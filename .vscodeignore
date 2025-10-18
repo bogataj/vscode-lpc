@@ -1,0 +1,16 @@
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+.gitignore
+.github/**
+tsconfig.json
+eslint.config.js
+*.vsix
+out/**/*.map
+.nyc_output
+coverage/
+**/.DS_Store
+formatted-lpc-test.lpc
+expected-result.lpc
+package-lock.json

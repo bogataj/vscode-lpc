@@ -1,0 +1,386 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LPC",
+  "scopeName": "source.lpc",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#preprocessor"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#modifiers"
+    },
+    {
+      "include": "#efuns"
+    },
+    {
+      "include": "#applies"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#function_definitions"
+    },
+    {
+      "include": "#arrays_mappings"
+    },
+    {
+      "include": "#lpc_closures"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.lpc",
+          "begin": "//",
+          "end": "$",
+          "patterns": [
+            {
+              "name": "keyword.todo.lpc",
+              "match": "\\b(TODO|FIXME|XXX|NOTE|HACK)\\b"
+            }
+          ]
+        },
+        {
+          "name": "comment.block.lpc",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            {
+              "name": "keyword.todo.lpc",
+              "match": "\\b(TODO|FIXME|XXX|NOTE|HACK)\\b"
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.lpc",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.lpc",
+              "match": "\\\\."
+            },
+            {
+              "name": "constant.other.placeholder.lpc",
+              "match": "%[-+ #0]*(?:\\*|\\d+)?(?:\\.(?:\\*|\\d+))?[OsdicoxXf%]"
+            }
+          ]
+        },
+        {
+          "name": "string.unquoted.text.lpc",
+          "begin": "@(\\w+)$",
+          "end": "^\\1$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.lpc"
+            }
+          }
+        }
+      ]
+    },
+    "lpc_closures": {
+      "patterns": [
+        {
+          "name": "meta.lambda.lpc",
+          "begin": "\\(:",
+          "end": ":\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.lambda.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.lambda.end.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "name": "variable.parameter.lambda.lpc",
+              "match": "\\$[0-9]+"
+            },
+            {
+              "include": "#expressions"
+            }
+          ]
+        },
+        {
+          "name": "meta.function-pointer.lpc",
+          "match": "#'[a-zA-Z_][a-zA-Z0-9_]*",
+          "captures": {
+            "0": {
+              "name": "constant.other.function-pointer.lpc"
+            }
+          }
+        },
+        {
+          "name": "meta.function-symbol.lpc",
+          "match": "'[a-zA-Z_][a-zA-Z0-9_]*",
+          "captures": {
+            "0": {
+              "name": "constant.other.symbol.lpc"
+            }
+          }
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.lpc",
+          "begin": "^\\s*#\\s*(include|define|undef|if|ifdef|ifndef|else|elif|endif|pragma|echo|warn|error)\\b",
+          "end": "$",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.lpc",
+          "match": "\\b(if|else|switch|case|default)\\b"
+        },
+        {
+          "name": "keyword.control.loop.lpc",
+          "match": "\\b(for|foreach|while|do)\\b"
+        },
+        {
+          "name": "keyword.control.flow.lpc",
+          "match": "\\b(break|continue|return)\\b"
+        },
+        {
+          "name": "keyword.control.exception.lpc",
+          "match": "\\b(catch|throw)\\b"
+        },
+        {
+          "name": "keyword.operator.lpc",
+          "match": "\\b(efun|inherit|nolog|publish|in|function)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.lpc",
+          "match": "\\b(void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\b"
+        },
+        {
+          "name": "storage.type.composite.lpc",
+          "match": "\\b(array|function|funcall)\\b"
+        }
+      ]
+    },
+    "modifiers": {
+      "patterns": [
+        {
+          "name": "storage.modifier.lpc",
+          "match": "\\b(public|private|protected|static|nomask|varargs|virtual|nosave)\\b"
+        }
+      ]
+    },
+    "efuns": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.lpc",
+          "match": "\\b(abs|acos|add_action|all_environment|all_inventory|allocate|allocate_mapping|and_bits|apply|asin|assoc|atan|atan2|attach_erq_demon|binary_message|bind_lambda|blueprint|break_point|call_other|call_out|call_out_info|call_resolved|caller_stack|caller_stack_depth|capitalize|cat|catch|ceil|clear_bit|clone_object|clonep|clones|closurep|command|command_stack|command_stack_depth|copy|copy_bits|copy_file|cos|count_bits|crypt|ctime|db_affected_rows|db_close|db_coldefs|db_connect|db_conv_string|db_error|db_exec|db_fetch|db_handles|db_insert_id|debug_info|debug_message|deep_copy|deep_inventory|destruct|disable_commands|ed|enable_commands|environment|exec|execute_command|exp|expand_define|explode|extern_call|extract|file_size|filter|filter_indices|filter_objects|find_call_out|find_input_to|find_object|first_inventory|floatp|floor|funcall|function_exists|functionlist|garbage_collection|get_dir|get_error_file|get_eval_cost|get_extra_wizinfo|get_type_info|gmtime|heart_beat_info|implode|include_list|inherit_list|input_to|input_to_info|insert_alist|interactive|intersect_alist|intp|invert_bits|lambda|last_bit|last_instructions|limited|living|load_name|load_object|localtime|log|lower_case|m_add|m_allocate|m_contains|m_delete|m_entry|m_indices|m_reallocate|m_values|make_shared_string|map|map_indices|map_objects|mappingp|max|md5|member|min|mkdir|mkmapping|move_object|negate|next_bit|next_inventory|notify_fail|object_info|object_name|object_time|objectp|or_bits|order_alist|pointerp|pow|present|present_clone|previous_object|printf|process_string|program_name|program_time|query_actions|query_command|query_editing|query_idle|query_input_pending|query_ip_name|query_ip_number|query_limits|query_load_average|query_mud_port|query_notify_fail|query_once_interactive|query_shadowing|query_snoop|query_udp_port|query_verb|quote|raise_error|random|read_bytes|read_file|referencep|regexp|regexplode|regmatch|regreplace|remove_action|remove_call_out|remove_input_to|remove_interactive|rename|rename_object|replace_program|restore_object|restore_value|rm|rmdir|rmember|rusage|save_object|save_value|say|send_erq|send_udp|set_bit|set_buffer_size|set_combine_charset|set_connection_charset|set_driver_hook|set_environment|set_extra_wizinfo|set_extra_wizinfo_size|set_heart_beat|set_is_wizard|set_light|set_limits|set_modify_command|set_next_reset|set_prompt|set_this_object|set_this_player|sgn|shadow|shutdown|sin|sizeof|slice_array|snoop|sort_array|sprintf|sqrt|sscanf|stringp|strlen|strrstr|strstr|swap|symbol_function|symbol_variable|symbolp|tail|tan|tell_object|tell_room|terminal_colour|test_bit|this_interactive|this_object|this_player|throw|time|to_array|to_float|to_int|to_object|to_string|trace|traceprefix|transpose_array|trim|typeof|unbound_lambda|unique_array|unmkmapping|unquote|unshadow|upper_case|users|utime|variable_exists|variable_list|walk_mapping|widthof|wizlist_info|write|write_bytes|write_file|xor_bits)\\b"
+        }
+      ]
+    },
+    "applies": {
+      "patterns": [
+        {
+          "name": "support.function.apply.lpc",
+          "match": "\\b(create|init|reset|heart_beat|clean_up|exit|__INIT|catch_tell|logon|modify_command|catch_msg|id|add_weight|can_put_and_get|drop|get|prevent_insert|query_weight)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.lpc",
+          "match": "\\b(LPC3|__LDMUD__|__EUIDS__|COMPAT_FLAG|__COMPAT_MODE__|__STRICT_EUIDS__|__FILENAME_SPACES__|__MASTER_OBJECT__|__FILE__|__LINE__|__DIR__|__PATH__|__VERSION__|__VERSION_MAJOR__|__VERSION_MINOR__|__VERSION_MICRO__|__VERSION_PATCH__|__DOMAIN_NAME__|__HOST_IP_NUMBER__|__HOST_NAME__|__MAX_RECURSION__|__MAX_EVAL_COST__|__CATCH_EVAL_COST__|__MASTER_EVAL_COST__|__RESET_TIME__|__CLEANUP_TIME__|__EFUN_DEFINED__|__DRIVER_LOG__|__WIZLIST__|__INT_MAX__|__INT_MIN__|__FLOAT_MAX__|__FLOAT_MIN__|__MAX_MALLOC__)\\b"
+        },
+        {
+          "name": "constant.numeric.lpc",
+          "match": "\\b(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)\\b"
+        },
+        {
+          "name": "constant.numeric.float.lpc",
+          "match": "\\b([0-9]*\\.[0-9]+([eE][+-]?[0-9]+)?[fF]?|[0-9]+[eE][+-]?[0-9]+[fF]?|[0-9]+[fF])\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "include": "#constants"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.lpc",
+          "match": "\\+|\\-|\\*|/|%|\\+\\+|\\-\\-"
+        },
+        {
+          "name": "keyword.operator.comparison.lpc",
+          "match": "==|!=|<|>|<=|>="
+        },
+        {
+          "name": "keyword.operator.logical.lpc",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.bitwise.lpc",
+          "match": "&|\\||\\^|~|<<|>>"
+        },
+        {
+          "name": "keyword.operator.assignment.lpc",
+          "match": "=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
+        },
+        {
+          "name": "keyword.operator.arrow.lpc",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.ternary.lpc",
+          "match": "\\?|:"
+        }
+      ]
+    },
+    "function_definitions": {
+      "patterns": [
+        {
+          "name": "meta.function.lpc",
+          "begin": "^\\s*((?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*\\s*((?:void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)(?:\\s*\\*)*?)\\s+(\\w+)\\s*\\(",
+          "end": "\\)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.lpc"
+            },
+            "2": {
+              "name": "storage.type.return.lpc"
+            },
+            "3": {
+              "name": "entity.name.function.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#types"
+            },
+            {
+              "include": "#modifiers"
+            }
+          ]
+        }
+      ]
+    },
+    "arrays_mappings": {
+      "patterns": [
+        {
+          "name": "meta.array.lpc",
+          "begin": "\\(\\{",
+          "end": "\\}\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.array.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.array.end.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "name": "meta.mapping.lpc",
+          "begin": "\\(\\[",
+          "end": "\\]\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.mapping.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.mapping.end.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "name": "meta.multiset.lpc",
+          "begin": "\\(<",
+          "end": ">\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.multiset.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.multiset.end.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

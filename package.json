@@ -1,0 +1,101 @@
+{
+  "name": "lpc-ldmud-lp245",
+  "displayName": "LPC Language Support (LDMUD/LP-245)",
+  "description": "Language support, syntax highlighting and formatting for LPC with LDMUD game driver and LP-245 mudlib",
+  "version": "1.0.0",
+  "publisher": "bogataj",
+  "author": {
+    "name": "Andreas Bogataj",
+    "email": "andreas@bogga.se"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "lpc",
+    "ldmud",
+    "lp-245",
+    "lp245",
+    "mudlib",
+    "game development",
+    "mud"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:lpc"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "lpc",
+      "aliases": ["LPC", "lpc", "LDMud"],
+      "extensions": [".c", ".h", ".lpc"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "lpc",
+      "scopeName": "source.lpc",
+      "path": "./syntaxes/lpc.tmGrammar.json"
+    }],
+    "commands": [{
+      "command": "lpc.format",
+      "title": "Format LPC Code"
+    }],
+    "configuration": {
+      "type": "object",
+      "title": "LPC",
+      "properties": {
+        "lpc.formatting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable LPC code formatting"
+        },
+        "lpc.formatting.indentSize": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces for indentation"
+        },
+        "lpc.formatting.insertFinalNewline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert final newline at end of file"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src/**/*.ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "install:dev": "npm install && code --install-extension lpc-ldmud-lp245-*.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@eslint/js": "^9.0.0",
+    "@eslint/eslintrc": "^3.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.5.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bogataj/vscode-lpc"
+  },
+  "bugs": {
+    "url": "https://github.com/bogataj/vscode-lpc/issues"
+  },
+  "homepage": "https://github.com/bogataj/vscode-lpc#readme",
+  "license": "MIT"
+}

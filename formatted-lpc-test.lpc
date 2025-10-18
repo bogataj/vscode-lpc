@@ -1,0 +1,840 @@
+#pragma strong_types
+#pragma save_types
+#pragma warn_deprecated
+#pragma combine_strings
+#pragma verbose_errors
+
+/*
+ * LDMUD Language Feature Test File
+ * 
+ * This file demonstrates all LDMUD/LPC language features, data types,
+ * operators, and syntax patterns for testing the formatter.
+ * 
+ * Author: Test Suite
+ * Driver: LDMUD 3.6+
+ */
+
+// ============================================================================
+// INCLUDES AND DEFINES
+// ============================================================================
+
+#include <sys/driver_hook.h>
+#include <sys/functionlist.h>
+#include <sys/lpctypes.h>
+#include <sys/objectinfo.h>
+#include <sys/rtlimits.h>
+#include <sys/trace.h>
+
+#define MAX_VALUE 100
+#define MIN_VALUE 0
+#define DEFAULT_NAME "test"
+#define VERSION "1.0.0"
+
+#ifdef __COMPAT_MODE__
+#define IS_COMPAT 1
+#else
+#define IS_COMPAT 0
+#endif
+
+#if defined(__TLS__)
+#define HAS_TLS 1
+#endif
+
+// ============================================================================
+// DATA TYPES - All LDMUD types
+// ============================================================================
+
+// Basic types
+int integer_var = 42;
+float float_var = 3.14159;
+string string_var = "Hello LDMUD";
+object object_var = this_object();
+mixed mixed_var = 0;
+void void_function();
+
+// Compound types
+int *int_array = ({ 1, 2, 3, 4, 5 });
+string *string_array = ({ "one", "two", "three" });
+object *object_array = ({ });
+mixed *mixed_array = ({ 1, "two", 3.0, this_object() });
+
+// Mappings (associative arrays)
+mapping simple_map = ([ "key": "value" ]);
+mapping complex_map = ([
+    "int": 42,
+    "string": "test",
+    "array": ({ 1, 2, 3 }),
+    "nested": ([ "inner": "value" ])
+]);
+
+// Advanced types
+status status_var = 1;
+closure closure_var = #'write;
+symbol symbol_var = 'test_symbol;
+bytes bytes_var = "binary data";
+struct test_struct *struct_var;
+lwobject lwobject_var;
+coroutine coroutine_var;
+lpctype type_var;
+
+// Quoted arrays (multisets)
+mixed *multiset = (< "a", "b", "c" >);
+
+// ============================================================================
+// MODIFIERS AND QUALIFIERS
+// ============================================================================
+
+static int static_var = 10;
+private int private_var = 20;
+protected int protected_var = 30;
+public int public_var = 40;
+nomask void nomask_function() { }
+varargs void varargs_function(int a, int b, int c) { }
+deprecated void deprecated_function() { }
+virtual inherit "/std/object";
+nosave int nosave_var = 0;
+
+// ============================================================================
+// STRUCTS
+// ============================================================================
+
+struct point {
+    int x;
+    int y;
+    int z;
+};
+
+struct player_data {
+    string name;
+    int level;
+    int hp;
+    int mp;
+    mapping inventory;
+    struct point *position;
+};
+
+// ============================================================================
+// OPERATORS - All LPC operators
+// ============================================================================
+
+void test_operators()
+{
+    int a = 10, b = 5, c;
+    string s1 = "Hello", s2 = "World";
+    mixed *arr = ({ 1, 2, 3 });
+
+    // Arithmetic operators
+    c = a + b;      // Addition
+    c = a - b;      // Subtraction
+    c = a * b;      // Multiplication
+    c = a / b;      // Division
+    c = a % b;      // Modulo
+
+    // Comparison operators
+    if (a == b) c = 1;      // Equal
+    if (a != b) c = 1;      // Not equal
+    if (a < b) c = 1;       // Less than
+    if (a > b) c = 1;       // Greater than
+    if (a <= b) c = 1;      // Less than or equal
+    if (a >= b) c = 1;      // Greater than or equal
+
+    // Logical operators
+    if (a && b) c = 1;      // Logical AND
+    if (a || b) c = 1;      // Logical OR
+    if (!a) c = 1;          // Logical NOT
+
+    // Bitwise operators
+    c = a & b;      // Bitwise AND
+    c = a | b;      // Bitwise OR
+    c = a ^ b;      // Bitwise XOR
+    c = ~a;         // Bitwise NOT
+    c = a << 2;     // Left shift
+    c = a >> 2;     // Right shift
+    c = a >>> 2;    // Unsigned right shift
+
+    // Assignment operators
+    c = a;          // Simple assignment
+    c += b;         // Add and assign
+    c -= b;         // Subtract and assign
+    c *= b;         // Multiply and assign
+    c /= b;         // Divide and assign
+    c %= b;         // Modulo and assign
+    c &= b;         // Bitwise AND and assign
+    c |= b;         // Bitwise OR and assign
+    c ^= b;         // Bitwise XOR and assign
+    c <<= 2;        // Left shift and assign
+    c >>= 2;        // Right shift and assign
+    c >>>= 2;       // Unsigned right shift and assign
+
+    // Increment/Decrement
+    c++;            // Post-increment
+    ++c;            // Pre-increment
+    c--;            // Post-decrement
+    --c;            // Pre-decrement
+
+    // String operators
+    s1 = s2 + " LPC";       // Concatenation
+    s1 = s2[0..4];          // Range extraction
+    c = s1[0];              // Character access
+
+    // Array operators
+    arr = ({ 1 }) + ({ 2, 3 });     // Array concatenation
+    arr -= ({ 2 });                 // Array subtraction
+    arr = arr[0..1];                // Array range
+    arr = ({ 1, 2, 3 }) & ({ 2, 3, 4 }); // Array intersection
+
+    // Ternary operator
+    c = (a > b) ? a : b;    // Conditional
+
+    // Range operator
+    s1 = s2[0..5];          // String range
+    arr = arr[1..<2];       // Array range with end offset
+
+    // Comma operator
+    c = (a = 5, b = 10, a + b);
+
+    // Member access
+    c = this_object()->query_level();
+
+    // Index operator
+    c = arr[0];
+    s1 = simple_map["key"];
+}
+
+// ============================================================================
+// CONTROL STRUCTURES
+// ============================================================================
+
+void test_control_structures()
+{
+    int i, j;
+    string name;
+    mixed *items;
+
+    // If-else
+    if (i > 0) {
+        write("Positive\n");
+    } else if (i < 0) {
+        write("Negative\n");
+    } else {
+        write("Zero\n");
+    }
+
+    // Brace-less if
+    if (i > 0)
+        write("Positive\n");
+
+    // Switch-case (LDMUD cli=0 style)
+    switch(i) {
+    case 0:
+        write("Zero\n");
+        break;
+    case 1:
+    case 2:
+    case 3:
+        write("Small number\n");
+        break;
+    case 4..10:
+        write("Medium number\n");
+        break;
+    default:
+        write("Large number\n");
+    }
+
+    // While loop
+    while (i < 10) {
+        i++;
+    }
+
+    // Do-while loop
+    do {
+        i--;
+    } while (i > 0);
+
+    // For loop
+    for (i = 0; i < 10; i++) {
+        write(i + "\n");
+    }
+
+    // Foreach loop
+    foreach (int value : ({ 1, 2, 3, 4, 5 })) {
+        write(value + "\n");
+    }
+
+    // Foreach with index
+    foreach (int value, int index : ({ 10, 20, 30 })) {
+        write(sprintf("%d: %d\n", index, value));
+    }
+
+    // Foreach with mapping
+    foreach (string key, mixed value : simple_map) {
+        write(sprintf("%s => %O\n", key, value));
+    }
+
+    // Break and continue
+    for (i = 0; i < 100; i++) {
+        if (i % 2 == 0)
+            continue;
+        if (i > 50)
+            break;
+        write(i + "\n");
+    }
+
+    // Return
+    if (i == 0)
+        return;
+}
+
+// ============================================================================
+// CLOSURES - Lambda expressions and function pointers
+// ============================================================================
+
+void test_closures()
+{
+    closure simple_lambda;
+    closure complex_lambda;
+    closure func_pointer;
+    mixed *arr;
+
+    // Simple lambda with positional parameters
+    simple_lambda = (: $1 + $2 :);
+    write(funcall(simple_lambda, 5, 10) + "\n");
+
+    // Lambda with expressions
+    complex_lambda = (: $1 * 2 + $2 * 3 :);
+
+    // Lambda with function calls
+    simple_lambda = (: write($1 + "\n") :);
+
+    // Function pointer (efun)
+    func_pointer = #'write;
+
+    // Function pointer (local function)
+    func_pointer = #'test_operators;
+
+    // Function pointer (object function)
+    func_pointer = #'this_object()->query_name;
+
+    // Symbol function
+    func_pointer = symbol_function("test_function", this_object());
+
+    // Unbound lambda
+    closure unbound = unbound_lambda(
+        ({ 'arg1, 'arg2 }),
+        ({ #'+, 'arg1, 'arg2 })
+    );
+
+    // Bind lambda to object
+    closure bound = bind_lambda(#'query_name, this_player());
+
+    // Using closures with map/filter
+    arr = ({ 1, 2, 3, 4, 5 });
+    arr = map(arr, (: $1 * 2 :));
+    arr = filter(arr, (: $1 > 5 :));
+
+    // Map with function pointer
+    arr = map(({ "a", "b", "c" }), #'upper_case);
+
+    // Lambda with multiple statements
+    simple_lambda = lambda(
+        ({ 'x }),
+        ({ #'?,
+            ({ #'>, 'x, 10 }),
+            ({ #'write, "Large\n" }),
+            ({ #'write, "Small\n" })
+        })
+    );
+
+    // Closure with captures
+    int captured_var = 42;
+    simple_lambda = (: $1 + captured_var :);
+}
+
+// ============================================================================
+// EFUNS - Essential LPC functions (selection)
+// ============================================================================
+
+void test_efuns()
+{
+    object ob;
+    string str;
+    mixed *arr;
+    mapping map;
+    int result;
+
+    // Object functions
+    ob = clone_object("/std/object");
+    ob = load_object("/std/room");
+    ob = find_object("/std/player");
+    ob = present("sword", this_player());
+    ob = environment(this_object());
+    ob = first_inventory(this_object());
+    ob = next_inventory(ob);
+    ob = this_object();
+    ob = this_player();
+    ob = this_interactive();
+    ob = previous_object();
+    destruct(ob);
+
+    // String functions
+    str = sprintf("%s has %d gold", "Player", 100);
+    str = capitalize("hello");
+    str = lower_case("HELLO");
+    str = upper_case("hello");
+    result = strlen("test");
+    arr = explode("one,two,three", ",");
+    str = implode(({ "one", "two" }), ",");
+    result = sscanf("Player has 100 gold", "%s has %d gold", str, result);
+    str = replace_string("Hello World", "World", "LDMUD");
+
+    // Array functions
+    arr = allocate(10);
+    arr = ({ 1, 2, 3 }) + ({ 4, 5 });
+    result = sizeof(arr);
+    arr = sort_array(({ 3, 1, 2 }), #'>);
+    arr = unique_array(({ 1, 2, 2, 3 }), #'=);
+    arr = filter(arr, (: $1 > 0 :));
+    arr = map(arr, (: $1 * 2 :));
+    result = member(({ 1, 2, 3 }), 2);
+
+    // Mapping functions
+    map = m_allocate(10);
+    map = ([ "key": "value" ]);
+    arr = m_indices(map);
+    arr = m_values(map);
+    result = sizeof(map);
+    map = m_add(map, ([ "new": "entry" ]));
+    map = m_delete(map, "key");
+    result = m_contains(map, &str, "key");
+
+    // Math functions
+    result = abs(-5);
+    result = max(10, 20);
+    result = min(10, 20);
+    result = random(100);
+    float f = sin(3.14);
+    f = cos(3.14);
+    f = tan(3.14);
+    f = sqrt(16.0);
+    f = pow(2.0, 8.0);
+    f = exp(1.0);
+    f = log(10.0);
+
+    // Time functions
+    result = time();
+    str = ctime(time());
+    arr = localtime(time());
+    arr = gmtime(time());
+    arr = utime();
+
+    // File I/O functions
+    str = read_file("/path/to/file");
+    result = write_file("/path/to/file", "content\n");
+    result = file_size("/path/to/file");
+    arr = get_dir("/path/to/dir");
+    result = mkdir("/path/to/dir");
+    result = rmdir("/path/to/dir");
+    result = rm("/path/to/file");
+    result = rename("/old", "/new");
+    str = read_bytes("/file", 0, 100);
+    result = write_bytes("/file", 0, "data");
+
+    // Communication functions
+    write("Hello\n");
+    printf("%s has %d gold\n", "Player", 100);
+    tell_object(this_player(), "Message\n");
+    tell_room(environment(this_player()), "Room message\n");
+    say("Everyone hears this\n");
+    shout("Loud message\n");
+
+    // Interactive functions
+    ob = this_interactive();
+    result = interactive(ob);
+    input_to("callback_function");
+    result = query_input_pending(ob);
+    result = query_idle(ob);
+    str = query_ip_name(ob);
+    str = query_ip_number(ob);
+    exec(ob, previous_object());
+
+    // Call functions
+    call_other(ob, "function_name", "arg");
+    call_out("delayed_function", 10, "arg");
+    result = find_call_out("delayed_function");
+    remove_call_out(result);
+    arr = call_out_info();
+
+    // Security functions
+    str = getuid(ob);
+    str = geteuid(ob);
+    seteuid("wizard");
+    export_uid(ob);
+    result = enable_commands();
+    result = disable_commands();
+    result = living(ob);
+    set_living_name("player_name");
+
+    // Debug functions
+    debug_message("Debug output\n");
+    mixed *trace = debug_info(DINFO_TRACE);
+    result = query_verb();
+    dump_driver_info(DINFO_DATA);
+}
+
+// ============================================================================
+// DRIVER APPLY FUNCTIONS
+// ============================================================================
+
+void create()
+{
+    // Called when object is created
+    set_property("name", "Test Object");
+}
+
+void reset()
+{
+    // Called periodically to reset object
+    if (!query_property("initialized"))
+        set_property("initialized", 1);
+}
+
+void init()
+{
+    // Called when object enters an environment or player enters
+    add_action("do_test", "test");
+}
+
+void heart_beat()
+{
+    // Called periodically if set_heart_beat() is active
+    static int counter = 0;
+    counter++;
+}
+
+int clean_up(int flag)
+{
+    // Called by master to clean up unused objects
+    if (flag)
+        return 1;
+    return 0;
+}
+
+// ============================================================================
+// CASTING
+// ============================================================================
+
+void test_casting()
+{
+    mixed m = 42;
+    int i;
+    string s;
+    object ob;
+
+    // Cast to specific types
+    i = ({int})m;
+    s = ({string})m;
+    ob = ({object})m;
+
+    // Cast with arrays
+    int *int_arr = ({int*})({ 1, 2, 3 });
+    string *str_arr = ({string*})({ "a", "b" });
+
+    // Type checking
+    if (intp(m))
+        write("It's an integer\n");
+    if (stringp(m))
+        write("It's a string\n");
+    if (objectp(m))
+        write("It's an object\n");
+    if (pointerp(m))
+        write("It's an array\n");
+    if (mappingp(m))
+        write("It's a mapping\n");
+    if (closurep(m))
+        write("It's a closure\n");
+    if (symbolp(m))
+        write("It's a symbol\n");
+}
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
+void test_error_handling()
+{
+    mixed error;
+    int result;
+
+    // Catch errors
+    error = catch(result = 10 / 0);
+    if (error)
+        write("Error caught: " + error + "\n");
+
+    // Catch with nolog
+    error = catch(destruct(this_object()), nolog);
+
+    // Throw error
+    if (result < 0)
+        throw("Invalid result");
+
+    // Raise error (old style)
+    if (result < 0)
+        raise_error("Invalid result\n");
+}
+
+// ============================================================================
+// INHERITANCE AND VIRTUAL OBJECTS
+// ============================================================================
+
+inherit "/std/object";
+virtual inherit "/std/container";
+
+// Override inherited function
+nomask string query_name()
+{
+    return ::query_name() + " [modified]";
+}
+
+// Call inherited version
+void reset()
+{
+    ::reset();
+    // Additional reset code
+}
+
+// ============================================================================
+// PREPROCESSOR FEATURES
+// ============================================================================
+
+#if 0
+// Disabled code block
+void disabled_function() {
+    write("This won't compile\n");
+}
+#endif
+
+#ifdef DEBUG
+void debug_function() {
+    write("Debug mode active\n");
+}
+#endif
+
+#ifndef PRODUCTION
+#define TEST_MODE 1
+#endif
+
+// Macro with parameters
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+// String concatenation
+#define MESSAGE "Hello " "World"
+
+// Macro expansion
+void test_macros()
+{
+    int a = 10, b = 20;
+    int max_value = MAX(a, b);
+    write(MESSAGE + "\n");
+}
+
+// ============================================================================
+// MULTI-LINE EXPRESSIONS AND ALIGNMENT
+// ============================================================================
+
+void test_alignment()
+{
+    // Multi-line function call
+    write(sprintf("This is a very long message with %s and %d and %f\n",
+        "string parameter",
+        42,
+        3.14159));
+
+    // Multi-line array
+    int *numbers = ({
+        1, 2, 3, 4, 5,
+        6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15
+    });
+
+    // Multi-line mapping
+    mapping config = ([
+        "name": "Test Config",
+        "version": "1.0",
+        "enabled": 1,
+        "settings": ([
+            "debug": 1,
+            "verbose": 0
+        ])
+    ]);
+
+    // Multi-line conditional
+    if (integer_var > 10
+        && string_var == "test"
+        && object_var != 0
+        || float_var > 3.0) {
+        write("Complex condition true\n");
+    }
+
+    // Chained method calls
+    object_var->set_property("name", "value")
+    ->set_property("level", 10)
+    ->save_data();
+}
+
+// ============================================================================
+// PRAGMAS AND COMPILER DIRECTIVES
+// ============================================================================
+
+#pragma strict_types
+#pragma save_types
+#pragma no_clone
+#pragma no_inherit
+#pragma no_shadow
+#pragma resident
+#pragma lightweight
+#pragma range_check
+#pragma rtt_checks
+#pragma warn_missing_return
+#pragma warn_deprecated
+#pragma warn_empty_casts
+#pragma pedantic
+
+// ============================================================================
+// SPECIAL SYNTAX PATTERNS
+// ============================================================================
+
+void test_special_syntax()
+{
+    // Range operator in array
+    int *arr = ({ 1, 2, 3, 4, 5 });
+    int *slice = arr[1..3];          // Elements 1, 2, 3
+    slice = arr[0..<2];              // All except last 2
+    slice = arr[<3..<1];             // Last 3 to last 1
+
+    // Range in switch
+    switch(integer_var) {
+    case 1..10:
+        write("Between 1 and 10\n");
+        break;
+    case 11..20:
+        write("Between 11 and 20\n");
+        break;
+    }
+
+    // Reference parameters
+    int ref_var;
+    sscanf("test 123", "%s %d", string_var, &ref_var);
+    m_contains(simple_map, &string_var, "key");
+
+    // Spread operator (proposed)
+    arr = ({ 1, 2, ({ 3, 4, 5 })... });
+}
+
+// ============================================================================
+// COMMENTS
+// ============================================================================
+
+void test_comments()
+{
+    // Single line comment
+
+    /* Block comment */
+
+    /*
+     * Multi-line block comment
+     * with multiple lines
+     * of text
+     */
+
+    int x = 5; // Inline comment
+
+    /* Nested /* comments */ are not standard */
+
+    // TODO: This is a todo comment
+    // FIXME: This needs fixing
+    // NOTE: Important note
+    // HACK: Temporary solution
+}
+
+// ============================================================================
+// COMPLEX NESTED STRUCTURES
+// ============================================================================
+
+void test_complex_nesting()
+{
+    // Deeply nested data structure
+    mapping complex = ([
+        "users": ({
+            ([ "name": "Alice", "level": 10 ]),
+            ([ "name": "Bob", "level": 20 ])
+        }),
+        "items": ({
+            ([
+                "name": "Sword",
+                "stats": ([ "damage": 10, "speed": 5 ]),
+                "enchantments": ({ "fire", "ice" })
+            ])
+        })
+    ]);
+
+    // Nested closures
+    closure outer = lambda(
+        ({ 'x }),
+        ({ #'map,
+            ({ 1, 2, 3 }),
+            lambda(
+                ({ 'y }),
+                ({ #'+, 'x, 'y })
+            )
+        })
+    );
+
+    // Complex filter/map chain
+    mixed *result = map(
+        filter(
+            ({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }),
+            (: $1 % 2 == 0 :)
+        ),
+        (: $1 * 2 :)
+    );
+}
+
+// ============================================================================
+// FINAL TEST - Real-world pattern
+// ============================================================================
+
+private mapping player_data = ([]);
+
+int do_command(string arg)
+{
+    object player = this_player();
+    string *parts;
+    int amount;
+
+    if (!arg || arg == "")
+        return notify_fail("Usage: command <args>\n"), 0;
+
+    parts = explode(arg, " ");
+
+    if (sizeof(parts) < 2)
+        return notify_fail("Need more arguments.\n"), 0;
+
+    switch(parts[0]) {
+    case "set":
+        if (sscanf(parts[1], "%d", amount) != 1)
+            return notify_fail("Invalid number.\n"), 0;
+        player_data[player] = amount;
+        write("Set to " + amount + "\n");
+        break;
+    case "get":
+        if (!m_contains(player_data, 0, player))
+            return notify_fail("No data stored.\n"), 0;
+        write("Value: " + player_data[player] + "\n");
+        break;
+    default:
+        return notify_fail("Unknown command.\n"), 0;
+    }
+
+    return 1;
+}
