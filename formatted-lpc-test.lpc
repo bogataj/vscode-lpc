@@ -113,6 +113,9 @@ struct player_data {
     struct point *position;
 };
 
+#define COLOR_ME_WHEN_USED 1
+int color_me_when_used = COLOR_ME_WHEN_USED;
+
 // ============================================================================
 // OPERATORS - All LPC operators
 // ============================================================================
@@ -1053,4 +1056,35 @@ void save_wiz_file()
         )
     );
 #endif
+}
+
+// Test file for macro highlighting
+
+#define MY_MACRO 42
+#define __DEBUG__ 1
+#define BUFFER_SIZE 1024
+
+void test_macros() {
+    int value = MY_MACRO;
+    string file = __WIZLIST__;
+    int size = BUFFER_SIZE;
+
+    // Hook constants
+    set_driver_hook(H_MOVE_OBJECT0, "move_hook");
+    set_driver_hook(H_LOAD_UIDS, "load_uids");
+
+    // Wizlist fields
+    int commands = WL_COMMANDS;
+    string name = WL_NAME;
+    int extra = WL_EXTRA;
+
+    // Version check
+    if (__LDMUD__) {
+        write("Running LDMUD\n");
+    }
+
+    // Debug mode
+    if (__DEBUG__) {
+        debug_message("Debug mode enabled");
+    }
 }

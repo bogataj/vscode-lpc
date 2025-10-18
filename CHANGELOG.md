@@ -4,6 +4,13 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [1.2.1] - 2025-10-18
 
+### Added
+- **Macro/Constant Highlighting**: Enhanced syntax highlighting for preprocessor macros and constants
+  - All-uppercase identifiers (3+ characters) now highlighted as constants (e.g., `BUFFER_SIZE`, `WL_NAME`)
+  - Double-underscore macros highlighted (e.g., `__DEBUG__`, `__MASTER__`)
+  - Macro names in `#define` statements now properly highlighted
+  - Makes it easy to distinguish constants/macros from regular variables
+
 ### Fixed
 - **Closing Parenthesis Alignment**: Fixed indentation for closing parentheses in deeply nested lambda/closure structures
   - Closing `)` now correctly aligns with the line containing the matching opening `(`

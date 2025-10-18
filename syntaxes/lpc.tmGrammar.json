@@ -157,8 +157,35 @@
     "preprocessor": {
       "patterns": [
         {
+          "name": "meta.preprocessor.define.lpc",
+          "begin": "^\\s*(#)\\s*(define)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "end": "$",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.directive.lpc"
+            },
+            "2": {
+              "name": "keyword.control.directive.define.lpc"
+            },
+            "3": {
+              "name": "entity.name.constant.preprocessor.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            }
+          ]
+        },
+        {
           "name": "meta.preprocessor.lpc",
-          "begin": "^\\s*#\\s*(include|define|undef|if|ifdef|ifndef|else|elif|endif|pragma|echo|warn|error)\\b",
+          "begin": "^\\s*#\\s*(include|undef|if|ifdef|ifndef|else|elif|endif|pragma|echo|warn|error)\\b",
           "end": "$",
           "beginCaptures": {
             "1": {
@@ -241,6 +268,16 @@
         {
           "name": "constant.language.lpc",
           "match": "\\b(LPC3|__LDMUD__|__EUIDS__|COMPAT_FLAG|__COMPAT_MODE__|__STRICT_EUIDS__|__FILENAME_SPACES__|__MASTER_OBJECT__|__FILE__|__LINE__|__DIR__|__PATH__|__VERSION__|__VERSION_MAJOR__|__VERSION_MINOR__|__VERSION_MICRO__|__VERSION_PATCH__|__DOMAIN_NAME__|__HOST_IP_NUMBER__|__HOST_NAME__|__MAX_RECURSION__|__MAX_EVAL_COST__|__CATCH_EVAL_COST__|__MASTER_EVAL_COST__|__RESET_TIME__|__CLEANUP_TIME__|__EFUN_DEFINED__|__DRIVER_LOG__|__WIZLIST__|__INT_MAX__|__INT_MIN__|__FLOAT_MAX__|__FLOAT_MIN__|__MAX_MALLOC__)\\b"
+        },
+        {
+          "comment": "Preprocessor macros with double underscores (e.g., __WIZLIST__, __MASTER__)",
+          "name": "variable.other.constant.lpc",
+          "match": "\\b__[A-Z][A-Z0-9_]*__\\b"
+        },
+        {
+          "comment": "All-uppercase identifiers typically used as macros (e.g., WL_NAME, H_MOVE_OBJECT0, SAVE_VERSION)",
+          "name": "variable.other.constant.lpc",
+          "match": "\\b[A-Z][A-Z0-9_]{2,}\\b"
         },
         {
           "name": "constant.numeric.lpc",
