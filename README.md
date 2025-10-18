@@ -93,6 +93,19 @@ MIT License - see LICENSE file for details.
 
 ## Changelog
 
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+### 1.2.1 - 2025-10-18
+- Added macro/constant highlighting for preprocessor defines and all-uppercase identifiers
+- Fixed closing parenthesis alignment in deeply nested lambda/closure structures
+- Added special handling for #'[ operator syntax
+
+### 1.2.0 - 2025-10-18
+- Comprehensive whitespace normalization with advanced spacing rules
+- Enhanced function pointer syntax highlighting
+- Critical string protection ensuring string literals are never modified
+- Zero-diff formatting achieved on comprehensive test suite
+
 ### 1.0.0
 - Initial release
 - Basic syntax highlighting
