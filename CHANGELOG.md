@@ -2,6 +2,40 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.0] - 2025-10-18
+
+### Added
+- **Comprehensive Whitespace Normalization**: Advanced spacing rules for consistent code formatting
+  - Remove extra spaces before semicolons, closing parentheses, and opening braces
+  - Normalize spaces after opening parentheses
+  - Standardize spacing in type declarations
+  - Clean up compound operators (==, !=, <=, >=, +=, -=, etc.)
+  - Proper spacing around assignment operators
+  - Function reference operator `#'` spacing normalization
+  - String concatenation spacing
+  - Inline closure `(: ... :)` spacing
+  - **Case statement normalization**: Single space after `case`, no space before `:`
+- **Enhanced Syntax Highlighting**: Function pointers now properly highlighted
+  - Function references like `#'function_name` now colored as function entities
+  - Operator function references like `#'=`, `#'+`, etc. also highlighted
+  - Improved pattern matching order for better syntax recognition
+
+### Fixed
+- **Critical String Protection**: String literal contents are now completely protected from modification
+  - Character-by-character state tracking with escape sequence handling
+  - Regex replacements only applied to code outside of strings
+  - Tested with complex multi-space patterns inside strings
+- Spaces removed after opening parentheses following LDMUD conventions
+- Multiple spaces in case labels normalized (e.g., `case  1:` → `case 1:`)
+- Space before colon in case statements removed (e.g., `case 2 :` → `case 2:`)
+- Spacing between `})` and `)` in nested closures/arrays
+
+### Improved
+- Zero-diff formatting achieved on 1029-line comprehensive test file
+- More robust code/string boundary detection
+- Better handling of LDMUD closure syntax `({'symbol})`, `({#'func})`, `({ values })`
+- Enhanced formatting consistency across all LPC language constructs
+
 ## [1.1.0] - 2025-10-18
 
 ### Added

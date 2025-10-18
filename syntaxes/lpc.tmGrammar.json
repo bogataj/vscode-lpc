@@ -34,6 +34,9 @@
       "include": "#numbers"
     },
     {
+      "include": "#lpc_closures"
+    },
+    {
       "include": "#operators"
     },
     {
@@ -41,9 +44,6 @@
     },
     {
       "include": "#arrays_mappings"
-    },
-    {
-      "include": "#lpc_closures"
     }
   ],
   "repository": {
@@ -134,13 +134,14 @@
           ]
         },
         {
-          "name": "meta.function-pointer.lpc",
+          "name": "entity.name.function.pointer.operator.lpc",
+          "match": "#'[=!<>+\\-*/%&|^~]+",
+          "patterns": []
+        },
+        {
+          "name": "entity.name.function.pointer.lpc",
           "match": "#'[a-zA-Z_][a-zA-Z0-9_]*",
-          "captures": {
-            "0": {
-              "name": "constant.other.function-pointer.lpc"
-            }
-          }
+          "patterns": []
         },
         {
           "name": "meta.function-symbol.lpc",

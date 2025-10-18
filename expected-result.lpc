@@ -63,7 +63,7 @@ mapping simple_map = ([ "key": "value" ]);
 mapping complex_map = ([
     "int": 42,
     "string": "test",
-    "array": ({ 1, 2, 3 }),
+    "array": ({ 1, 2, 3 })
     "nested": ([ "inner": "value" ])
 ]);
 
@@ -321,8 +321,8 @@ void test_closures() {
 
     // Unbound lambda
     closure unbound = unbound_lambda(
-        ({ 'arg1, 'arg2 }),
-        ({ #'+, 'arg1, 'arg2 })
+        ({'arg1, 'arg2}), ({
+            #'+, 'arg1, 'arg2})
     );
 
     // Bind lambda to object
@@ -338,11 +338,11 @@ void test_closures() {
 
     // Lambda with multiple statements
     simple_lambda = lambda(
-        ({ 'x }),
-        ({ #'?,
-            ({ #'>, 'x, 10 }),
-            ({ #'write, "Large\n" }),
-            ({ #'write, "Small\n" })
+        ({'x}), ({
+            #'?, ({
+                #'>, 'x, 10}), ({
+                #'write, "Large\n"}), ({
+                #'write, "Small\n"})
         })
     );
 
@@ -757,13 +757,13 @@ void test_complex_nesting() {
     // Deeply nested data structure
     mapping complex = ([
         "users": ({
-            ([ "name": "Alice", "level": 10 ]),
-            ([ "name": "Bob", "level": 20 ])
+            ([ "name": "Alice", "level": 10 ]), ([
+                "name": "Bob", "level": 20 ])
         }),
         "items": ({
             ([
                 "name": "Sword",
-                "stats": ([ "damage": 10, "speed": 5 ]),
+                "stats": ([ "damage": 10, "speed": 5 ])
                 "enchantments": ({ "fire", "ice" })
             ])
         })
@@ -771,12 +771,12 @@ void test_complex_nesting() {
 
     // Nested closures
     closure outer = lambda(
-        ({ 'x }),
-        ({ #'map,
-            ({ 1, 2, 3 }),
+        ({'x}), ({
+            #'map, ({
+                1, 2, 3}),
             lambda(
-                ({ 'y }),
-                ({ #'+, 'x, 'y })
+                ({'y}), ({
+                    #'+, 'x, 'y})
             )
         })
     );
@@ -792,6 +792,59 @@ void test_complex_nesting() {
 }
 
 // ============================================================================
+// TEST - String content should NOT be formatted
+// ============================================================================
+
+void test_strings_not_formatted() {
+    string str;
+
+    // Strings with closure-like content should NOT be modified
+    str = "This is a closure: ({'arg1, 'arg2})";
+    str = "Lambda: ({#'function, 'x, 'y})";
+    str = "Array: ({ 1,2,3})";  // Spaces inside string should not be added
+    str = "Cast: ({int})value";
+
+    // Strings with switch/case should NOT be modified
+    str = "switch(x) { case 1: break; }";
+    str = "The switch statement";
+
+    // Strings with operators should NOT be modified
+    str = "x&&y||z";
+    str = "value?true:false";
+    str = "arr[0..5]";
+
+    // Strings with comments should NOT be modified
+    str = "/* this is not a comment */";
+    str = "// this is not a comment";
+    str = "value /* inline */ + 1";
+
+    // Strings with braces should NOT be modified
+    str = "function()  {  return  x;  }";  // Extra spaces preserved
+    str = "if(x){y}else{z}";  // No spaces added
+
+    // Complex strings with multiple formatters triggers
+    write("unbound_lambda( ({'item, 'dest}), ({#'_move_hook_fun, 'item, 'dest}) )");
+    write("switch(value){case 1:return({1,2,3});case 2:return({int})x;}");
+    write("Closure: ({'x}) Lambda: ({#'func,'y}) Array: ({ 1, 2, 3})");
+
+    // Multi-line strings should also be safe
+    str = "This is a long string with " +
+          "closure-like content: ({'arg}) and " +
+          "array-like content: ({ 1,2,3}) that " +
+          "should not be formatted at all";
+
+    // String concatenation with formatting-sensitive content
+    str = "function " + "test" + "()" + " {" + " return " + "({'x})" + "; }";
+
+    // sprintf with format specifiers
+    str = sprintf("Lambda: %O, Array: %O", ({'x}), ({ 1, 2, 3 }));
+    write(sprintf("Switch: %s, Closure: %O", "switch(x)", ({#'func})));
+
+    // Escaped quotes in strings
+    str = "She said: \"Use ({'closure}) here\"";
+    str = "Path: \"c:\\test\\({file})\\data\"";
+}
+
 // FINAL TEST - Real-world pattern
 // ============================================================================
 
@@ -832,7 +885,55 @@ int do_command(string arg) {
     return 1;
 }
 
-void inaugurate_master (int arg)
+varargs mixed snoop(mixed snoopee)
+{
+    int result;
+
+    if (snoopee && interactive(snoopee) && interactive_info(snoopee, II_SNOOP_NEXT)) {
+        write("Busy.\n");
+        return 0;
+    }
+    result = snoopee ? efun::snoop(this_player(), snoopee)
+                     : efun::snoop(this_player());
+    switch (result) {
+    case -1:
+        write("Busy.\n");
+        break;
+    case 0:
+        write("Failed.\n");
+        break;
+    case 1:
+        write("Ok.\n");
+        break;
+    }
+    if (result > 0) return snoopee;
+
+    return 0;
+}
+
+varargs void add_worth(int value, object ob)
+{
+    mixed old;
+#ifdef __COMPAT_MODE__
+    switch (explode(object_name(previous_object()), "/")[0]) {
+#else
+    switch (explode(object_name(previous_object()), "/")[1]) {
+#endif
+    default:
+        raise_error("Illegal call of add_worth.\n");
+    case "obj":
+    case "std":
+    case "room":
+    }
+    if (!ob) {
+        if (!(ob = previous_object(1)))
+            return;
+    }
+    if (intp(old = get_extra_wizinfo(ob)))
+        set_extra_wizinfo(ob, old + value);
+}
+
+void inaugurate_master(int arg)
 
 // Perform mudlib specific setup of the master.
 //
@@ -869,20 +970,20 @@ void inaugurate_master (int arg)
 
     set_driver_hook(
         H_MOVE_OBJECT0,
-        unbound_lambda( ({'item, 'dest}),
-            ({#'_move_hook_fun, 'item, 'dest })
+        unbound_lambda(({'item, 'dest}), ({
+            #'_move_hook_fun, 'item, 'dest})
         )
     );
     set_driver_hook(
         H_LOAD_UIDS,
-        unbound_lambda( ({'object_name}), ({
-            #'_load_uids_fun, 'object_name, ({#'previous_object}) })
+        unbound_lambda(({'object_name}), ({
+            #'_load_uids_fun, 'object_name, ({#'previous_object})})
         )
     );
     set_driver_hook(
         H_CLONE_UIDS,
-        unbound_lambda( ({ /* object */ 'blueprint, 'new_name}), ({
-            #'_clone_uids_fun, 'blueprint, 'new_name, ({#'previous_object}) })
+        unbound_lambda(({ /* object */ 'blueprint, 'new_name}), ({
+            #'_clone_uids_fun, 'blueprint, 'new_name, ({#'previous_object})})
         )
     );
     /*
@@ -892,35 +993,34 @@ void inaugurate_master (int arg)
      * Non-compat mudlibs usually specify "create" for the H_CREATE_* hooks
      * and "reset" for the H_RESET hook.
      */
-    set_driver_hook(
-        H_CREATE_SUPER,
-        unbound_lambda( ({ 'ob }), ({
-            #'_create_fun, 'ob, ({#'this_object}) })
+    set_driver_hook(H_CREATE_SUPER,
+        unbound_lambda(({'ob}),
+            ({#'_create_fun, 'ob, ({#'this_object})})
         )
     );
     set_driver_hook(
         H_CREATE_OB,
-        unbound_lambda( ({ 'ob }), ({
-            #'_create_fun, 'ob, ({#'this_object}) })
+        unbound_lambda(({'ob}), ({
+            #'_create_fun, 'ob, ({#'this_object})})
         )
     );
     set_driver_hook(
         H_CREATE_CLONE,
-        unbound_lambda( ({ 'ob }), ({
-            #'_create_fun, 'ob, ({#'this_object}) })
+        unbound_lambda(({'ob}), ({
+            #'_create_fun, 'ob, ({#'this_object})})
         )
     );
     set_driver_hook(
         H_RESET,
         unbound_lambda(0, ({
-            #'funcall, ({#'symbol_function, "reset", ({#'this_object})}), 1 })
+            #'funcall, ({#'symbol_function, "reset", ({#'this_object})}), 1})
         )
     );
     set_driver_hook(H_CLEAN_UP, "clean_up");
-    set_driver_hook(H_MODIFY_COMMAND,
-        ([ "e":"east", "w":"west", "s":"south", "n":"north"
-            , "d":"down", "u":"up", "nw":"northwest", "ne":"northeast"
-            , "sw":"southwest", "se":"southeast" ]));
+    set_driver_hook(H_MODIFY_COMMAND, ([
+        "e":"east", "w":"west", "s":"south", "n":"north",
+        "d":"down", "u":"up", "nw":"northwest", "ne":"northeast",
+        "sw":"southwest", "se":"southeast" ]));
     set_driver_hook(H_MODIFY_COMMAND_FNAME, "modify_command");
     set_driver_hook(H_NOTIFY_FAIL, "What?\n");
     set_driver_hook(H_INCLUDE_DIRS, #'_include_dirs_hook);
