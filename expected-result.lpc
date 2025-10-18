@@ -1026,3 +1026,31 @@ void inaugurate_master(int arg)
     set_driver_hook(H_INCLUDE_DIRS, #'_include_dirs_hook);
     set_driver_hook(H_AUTO_INCLUDE, #'_auto_include_hook);
 }
+
+
+//---------------------------------------------------------------------------
+void save_wiz_file()
+
+/*
+ * Save the wizlist file.
+ */
+
+{
+#ifdef __WIZLIST__
+    rm(__WIZLIST__);
+    write_file(
+        __WIZLIST__,
+        implode(
+            map(wizlist_info(),
+                lambda(({'a}),
+                    ({#'sprintf, "%s %d %d\n",
+                        ({#'[, 'a, WL_NAME}),
+                        ({#'[, 'a, WL_COMMANDS}),
+                        ({#'[, 'a, WL_EXTRA})
+                    })
+                )
+            ), ""
+        )
+    );
+#endif
+}

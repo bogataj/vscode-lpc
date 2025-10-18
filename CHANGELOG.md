@@ -2,6 +2,15 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.1] - 2025-10-18
+
+### Fixed
+- **Closing Parenthesis Alignment**: Fixed indentation for closing parentheses in deeply nested lambda/closure structures
+  - Closing `)` now correctly aligns with the line containing the matching opening `(`
+  - Fixed bracket stack matching to search for parentheses specifically, not just any bracket type
+  - Added special handling for `#'[` operator syntax to prevent bracket stack interference
+  - Resolves issues with functions like `write_file(implode(map(lambda(...))))` having misaligned closing brackets
+
 ## [1.2.0] - 2025-10-18
 
 ### Added

@@ -215,13 +215,21 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 expectSingleStatementIndent = false;
                 lastLineWasCaseLabel = false;
             }
-            // Closing parentheses should use bracket matching, not continuation logic
-            else if (trimmed === ')' || trimmed === ');' || trimmed === '),') {
-                if (bracketStack.length > 0) {
-                    const matchingParen = bracketStack[bracketStack.length - 1];
-                    // Use the assigned indent level from when we formatted the opening line
+            // Closing parentheses should align with the base indent of the line with opening bracket
+            else if (trimmed.startsWith(')')) {
+                // Find the matching opening parenthesis (not bracket or brace)
+                let matchingParen = null;
+                for (let j = bracketStack.length - 1; j >= 0; j--) {
+                    if (bracketStack[j].char === '(') {
+                        matchingParen = bracketStack[j];
+                        break;
+                    }
+                }
+                
+                if (matchingParen) {
+                    // Use the stored base indent level (already in indent units)
                     currentIndent = matchingParen.assignedIndent;
-                } else if (lpcStructureIndentStack.length > 0 && trimmed === '),') {
+                } else if (lpcStructureIndentStack.length > 0 && trimmed.startsWith('),')) {
                     currentIndent = lpcStructureIndentStack[lpcStructureIndentStack.length - 1];
                 } else {
                     currentIndent = indentLevel;
@@ -465,7 +473,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     continue;
                 }
                 
+                // Skip '[' in efun operator syntax #'[
+                if (char === '[' && col >= 2 && formattedLine[col - 1] === '\'' && formattedLine[col - 2] === '#') {
+                    continue;
+                }
+                
                 if (char === '(' || char === '[' || char === '{') {
+                    // Store the current indent level (in indent units) where the closing bracket should align
                     bracketStack.push({ char, column: col, lineIndex: i, assignedIndent: currentIndent });
                 } else if (char === ')' || char === ']' || char === '}') {
                     if (bracketStack.length > 0) {
