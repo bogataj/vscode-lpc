@@ -93,43 +93,4 @@ MIT License - see LICENSE file for details.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for full version history.
-
-### 1.2.5 - 2025-10-19
-- Improved column-aligned inline comment spacing for better readability
-- Comments align to multiples of 4 columns with minimum 2 spaces
-- Creates clean visual columns for related statements
-
-### 1.2.4 - 2025-10-19
-- Fixed binary operator spacing in one-liner statements (e.g., `arg+"_aptness"` → `arg + "_aptness"`)
-- Fixed string content protection - paths like `"/std/object"` no longer modified
-- Fixed comment content protection - operators not added inside comments
-- Fixed `else if` one-liner preservation
-- Added proper spacing for compound assignment operators (`+=`, `-=`, etc.)
-
-### 1.2.3 - 2025-10-19
-- Fixed brace indentation when opening brace has inline comment
-- Fixed one-liner if/while/for/foreach statements being incorrectly split
-- Improved pattern detection for complex nested function calls
-
-### 1.2.2 - 2025-10-18
-- **Critical Fix**: Comments now completely ignored during formatting - prevents indentation corruption
-- Fixed function name highlighting in declarations
-- Added comprehensive test cases for comment handling
-
-### 1.2.1 - 2025-10-18
-- Added macro/constant highlighting for preprocessor defines and all-uppercase identifiers
-- Fixed closing parenthesis alignment in deeply nested lambda/closure structures
-- Added special handling for #'[ operator syntax
-
-### 1.2.0 - 2025-10-18
-- Comprehensive whitespace normalization with advanced spacing rules
-- Enhanced function pointer syntax highlighting
-- Critical string protection ensuring string literals are never modified
-- Zero-diff formatting achieved on comprehensive test suite
-
-### 1.0.0
-- Initial release
-- Basic syntax highlighting
-- Code formatting support
-- Language configuration for LPC
+For complete version history, bug fixes, and new features, see [CHANGELOG.md](CHANGELOG.md).
