@@ -1,52 +1,62 @@
 # LPC Language Support (LDMUD/LP-245)
 
-A comprehensive Visual Studio Code extension that provides language support for LPC (LPC Programming Language) used with the **LDMUD game driver** and **LP-245 mudlib**.
+A comprehensive Visual Studio Code extension providing production-quality language support for LPC (Lars Pensjö C) used with the LDMUD game driver and LP-245 mudlib.
 
 **Author**: Andreas Bogataj (andreas@bogga.se)
 
-This extension is specifically tailored for LDMUD's implementation of LPC and follows the LP-245 mudlib conventions, including:
-- LDMUD-specific formatting rules (`-cli0` case label indentation)
-- LP-245 coding standards
-- LDMUD efuns and applies
-- LPC-specific data structures: `({})` arrays, `([])` mappings, `(<>)` multisets
+## Overview
+
+This extension is specifically tailored for LDMUD's implementation of LPC and battle-tested with the LP-245 mudlib. It provides complete syntax highlighting, a production-grade code formatter, and full language support for LDMUD-specific constructs.
 
 ## Features
 
-- **Syntax Highlighting**: Full syntax highlighting for LPC language constructs
-- **Code Formatting**: Automatic code formatting with configurable indentation
-- **Language Configuration**: Support for comments, brackets, and auto-pairing
-- **LDMUD Specific**: Tailored for LDMUD efuns, applies, and language features
+### Comprehensive Syntax Highlighting
 
-## Supported File Extensions
+Complete syntax support for all LPC/LDMUD language constructs:
 
-- `.lpc` - LPC source files
-- `.c` - LPC source files (common convention)
-- `.h` - LPC header files
+- **Keywords & Control Flow**: `if`, `else`, `for`, `foreach`, `while`, `switch`, `case`, `default`, `break`, `continue`, `return`
+- **Data Types**: `void`, `int`, `float`, `string`, `object`, `mapping`, `mixed`, `closure`, `symbol`, `bytes`, `struct`, `lwobject`, `coroutine`
+- **Modifiers**: `public`, `private`, `protected`, `static`, `nomask`, `varargs`, `deprecated`
+- **LDMUD Efuns**: All built-in functions like `write()`, `tell_object()`, `clone_object()`, `call_out()`, etc.
+- **Apply Functions**: Standard applies like `create()`, `init()`, `heart_beat()`, `reset()`
+- **Preprocessor Directives**: `#include`, `#define`, `#ifdef`, `#ifndef`, `#pragma`
+- **Special Constructs**: Function pointers `#'`, closures `({})`, lambda expressions, inline closures
 
-## Language Features
+### Production-Grade Code Formatter
 
-### Syntax Highlighting
+The formatter has been extensively tested and refined on real-world codebases with zero-diff validation on comprehensive test suites.
 
-The extension provides comprehensive syntax highlighting for:
+**Smart Indentation:**
+- Context-aware indentation for nested blocks
+- Switch/case statement handling with LDMUD `-cli0` style (case labels at same indent as switch)
+- Multi-line statement continuation with proper alignment
+- Bracket stack tracking for complex nested structures
 
-- **Keywords**: `if`, `else`, `for`, `foreach`, `while`, `do`, `switch`, `case`, `default`
-- **Types**: `void`, `int`, `float`, `string`, `object`, `mapping`, `mixed`, `array`
-- **Modifiers**: `public`, `private`, `protected`, `static`, `nomask`, `varargs`
-- **LDMUD Efuns**: All built-in functions like `write()`, `tell_object()`, `clone_object()`
-- **Apply Functions**: Standard applies like `create()`, `init()`, `heart_beat()`
-- **Data Structures**: Arrays `({})`, Mappings `([])`, Multisets `(<>)`
+**LPC-Specific Features:**
+- **Closure Syntax Protection**: Patterns like `( ({ ... })` preserved correctly
+- **String Literal Safety**: String content never modified (e.g., paths like `"/std/object"`)
+- **Backslash String Continuations**: Multi-line strings with `\` line continuation handled properly
+- **Data Structure Formatting**: Arrays `({})`, mappings `([])`, and multisets `(<>)` formatted consistently
+- **Comment Preservation**: Inline and block comments maintain proper spacing and alignment
 
-### Code Formatting
+**Operator Spacing:**
+- Consistent spacing around binary operators: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Compound assignment operators: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`
+- Ternary operator alignment: `? :`
+- Logical operators: `&&`, `||`, `!`
+- Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>`
 
-Automatic code formatting includes:
-- Proper indentation for blocks, functions, and control structures
-- Consistent spacing around operators
-- Alignment of function parameters
-- Support for LPC-specific constructs
+**Edge Case Handling:**
+- One-liner function and control statement preservation
+- Inline comments containing brace characters
+- Nested function calls and closures
+- Complex lambda expressions
+- Mixed data structure declarations
+- Deeply nested structures with closing patterns like `}));` and `}) ) )`
 
 ### Configuration
 
-The extension can be configured through VS Code settings:
+Customize the formatter through VS Code settings:
 
 ```json
 {
@@ -55,6 +65,17 @@ The extension can be configured through VS Code settings:
     "lpc.formatting.insertFinalNewline": true
 }
 ```
+
+**Available Settings:**
+- `lpc.formatting.enabled` - Enable/disable formatting (default: `true`)
+- `lpc.formatting.indentSize` - Spaces per indent level (default: `4`)
+- `lpc.formatting.insertFinalNewline` - Add newline at EOF (default: `true`)
+
+## Supported File Extensions
+
+- `.lpc` - LPC source files
+- `.c` - LPC source files (common convention)
+- `.h` - LPC header files
 
 ## Installation
 
