@@ -37,55 +37,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     }
 
     private formatLPCCode(code: string, options: vscode.FormattingOptions): string {
-        let lines = code.split(/\r?\n/);
-        
-        // Preprocess: split lines that have statements followed by closing braces (e.g., "statement; }")
-        let preprocessedLines: string[] = [];
-        for (const line of lines) {
-            const trimmed = line.trim();
-            
-            // Skip lines that are comments
-            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
-                preprocessedLines.push(line);
-                continue;
-            }
-            
-            // Remove comment portion from line before checking for ; } pattern
-            let codeOnly = trimmed;
-            const lineCommentPos = trimmed.indexOf('//');
-            if (lineCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, lineCommentPos).trim();
-            }
-            const blockCommentPos = trimmed.indexOf('/*');
-            if (blockCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, blockCommentPos).trim();
-            }
-            
-            // Check if line ends with ; } or ; } followed by more closing braces
-            // BUT exclude one-liner functions (e.g., "function() { statement; }")
-            // AND exclude one-liner control statements (e.g., "if(x) { statement; }")
-            const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
-            // For control statements, check if it starts with the keyword and has both { and } on same line
-            // Handle "else if" as a special case since it has two keywords
-            // Also check for if...else one-liners (e.g., "if(x) { y; } else { z; }")
-            const isOneLinerControl = (codeOnly.match(/^(if|while|for|foreach)\s*\(/) || codeOnly.match(/^else\s*(if\s*\(|{)/)) && codeOnly.includes('{') && codeOnly.includes('}');
-            const isOneLinerIfElse = codeOnly.match(/^if\s*\([^)]*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}\s*$/);
-            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl && !isOneLinerIfElse) {
-                // Split the statement and closing braces
-                const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
-                if (match) {
-                    const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
-                    preprocessedLines.push(leadingSpaces + match[1].trim());
-                    preprocessedLines.push(leadingSpaces + match[2]);
-                } else {
-                    preprocessedLines.push(line);
-                }
-            } else {
-                preprocessedLines.push(line);
-            }
-        }
-        
-        lines = preprocessedLines;
+        let lines = this.preprocessLines(code.split(/\r?\n/));
         
         let result: string[] = [];
         let indentLevel = 0;
@@ -440,77 +392,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 commentPart = ' ' + trimmed.substring(lineCommentIndex); // Keep a space before comment
             }
             
-            let normalizedTrimmed = codepart.replace(/,\s{2,}/g, ', ');
-            
-            // Normalize spacing in various contexts (but only outside strings)
-            // 1. Remove extra spaces before closing parentheses, semicolons, opening braces (2+ spaces)
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s{2,}([);{])/g, ' $1');
-            // 1a. Remove all spaces before semicolons
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s+;/g, ';');
-            // 1b. Remove spaces between }) and ) ONLY if not part of nested closure pattern
-            // DON'T remove `) )` if there are multiple `})` patterns (nested lambdas!)
-            // ALSO don't modify lines with })); or }) ) ) patterns (arrays inside function calls, nested lambdas)
-            const hasMultipleClosingParens = normalizedTrimmed.includes('}));') || 
-                                             /\}\)\s*\)\s*\)/.test(normalizedTrimmed) ||
-                                             /\}\)\s*\)\s*;/.test(normalizedTrimmed);
-            if (!hasMultipleClosingParens && (normalizedTrimmed.match(/\}\s*\)/g) || []).length < 2) {
-                normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\}\)\s+\)/g, '})');
-            }
-            
-            // 1b. Remove extra spaces after opening parentheses (but preserve space before closures/arrays)
-            // Remove spaces after ( EXCEPT when followed by ({ which indicates array/closure
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(\s+(?!\(\{)/g, '(');
-            
-            // 1c. Remove extra spaces in type declarations (e.g., "int    var" -> "int var")
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\b(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s{2,}/g, '$1 ');
-            
-            // 1d. Normalize case statements - single space after 'case', no space before ':' in case labels
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\bcase\s{2,}/g, 'case ');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\bcase\s+(.+?)\s+:/g, 'case $1:');
-            
-            // 2. Remove extra spaces in compound operators like ==, !=, <=, >=, +=, -=, etc.
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([=!<>+\-*/%&|^])\s{2,}=/g, '$1=');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /=\s{2,}([=>])/g, '=$1');
-            
-            // 3. Normalize spacing around assignment = operator (one space on each side)
-            // But don't touch compound operators that already have =, and exclude #'= pattern
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([^=!<>+\-*/%&|^'])\s*=\s*([^=])/g, '$1 = $2');
-            
-            // 1e. Remove ALL spaces around operators after #' in function references (must come after assignment normalization)
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /#'\s*([=!<>&|+\-*/%^]+)\s*/g, "#'$1");
-            
-            // 4. Remove extra spaces before + operator (for string concatenation)
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s{2,}\+/g, ' +');
-            
-            // 4a. Add spaces around binary operators (+, -, *, /, %) when missing
-            // Match operator not preceded/followed by space, excluding compound operators and special cases
-            // Include " for +,-,* but not for /,% to avoid matching paths like "/std/object" and format specs like "%s"
-            // Also handle cases where space exists on one side but not the other
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
-            // Note: Multiply operator * NOT auto-spaced to avoid conflicts with pointer type declarations like "int *var"
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
-            
-            // 4b. Add spaces after commas in function calls when missing
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /,([a-zA-Z0-9_"'({])/g, ', $1');
-            
-            // 4c. Add spaces around += operator when missing
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+=([a-zA-Z0-9_"({])/g, '$1 += $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}]) \+=([a-zA-Z0-9_"({])/g, '$1 += $2');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+= ([a-zA-Z0-9_"({])/g, '$1 += $2');
-            
-            // 5. Normalize inline closures (: ... :) - single space after (: and before :)
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(:\s+/g, '(: ');
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s+:\)/g, ' :)');
-            // Also normalize multiple spaces inside inline closures to single spaces
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(:\s+(.+?)\s+:\)/g, (match, content) => {
-                // Normalize spaces inside the closure
-                const normalized = content.replace(/\s{2,}/g, ' ');
-                return `(: ${normalized} :)`;
-            });
+            let normalizedTrimmed = this.normalizeSpacing(codepart);
             
             // Check if this is a ternary continuation line
             const previousLine = i > 0 ? lines[i - 1].trim() : '';
@@ -714,94 +596,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             // Don't clear the multi-line control statement flag here - 
             // it will be cleared when we process the statement body
 
-            let openBraceCount = 0;
-            let closeBraceCount = 0;
-            
-            // Track string and comment state to skip counting braces inside them
-            let braceInString = false;
-            let braceInLineComment = false;
-            let braceInBlockComment = false;
-            
-            for (let i = 0; i < trimmed.length; i++) {
-                const char = trimmed[i];
-                const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
-                const prevChar = i > 0 ? trimmed[i - 1] : '';
-                
-                // Track string state (skip escaped quotes)
-                if (char === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
-                    braceInString = !braceInString;
-                    continue;
-                }
-                
-                // Skip everything inside strings
-                if (braceInString) {
-                    continue;
-                }
-                
-                // Track line comment state (but NOT #' function references!)
-                if (!braceInBlockComment && char === '/' && nextChar === '/') {
-                    braceInLineComment = true;
-                }
-                
-                // Skip everything inside line comments
-                if (braceInLineComment) {
-                    continue;
-                }
-                
-                // Track block comment state
-                if (char === '/' && nextChar === '*') {
-                    braceInBlockComment = true;
-                    i++; // Skip the *
-                    continue;
-                }
-                
-                if (braceInBlockComment && char === '*' && nextChar === '/') {
-                    braceInBlockComment = false;
-                    i++; // Skip the /
-                    continue;
-                }
-                
-                // Skip everything inside block comments
-                if (braceInBlockComment) {
-                    continue;
-                }
-                
-                // Handle LPC closure structures: ({ ... }), ([ ... ]), (< ... >)
-                // These should NOT affect the indent level
-                if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                    // LPC data structure opening - don't count the brace for indentLevel
-                    i++; // Skip the { [ or <
-                    continue;
-                } else if (char === '{') {
-                    // Regular brace opening (not part of closure syntax)
-                    if (prevChar !== '(' && prevChar !== '[' && prevChar !== '<') {
-                        openBraceCount++;
-                    }
-                } else if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
-                    // LPC data structure closing - skip the closing paren
-                    continue;
-                } else if (char === '}' || char === ']' || char === '>') {
-                    // Check if it's part of a closure structure
-                    if (nextChar === ')') {
-                        // This is }) ]) or >) - part of closure syntax, don't count
-                        i++; // Skip the )
-                        continue;
-                    }
-                    // Regular closing brace
-                    if (char === '}') {
-                        if (i === 0 && leadingCloseBraceHandled) {
-                            continue;
-                        }
-                        closeBraceCount++;
-                    }
-                }
-            }
-            
-            const openingMatches = trimmed.match(/\(\{|\(\[|\(\</g);
-            const closingMatches = trimmed.match(/\}\)|\]\)|\>\)/g);
-            
-            const openingCount = openingMatches ? openingMatches.length : 0;
-            const closingCount = closingMatches ? closingMatches.length : 0;
+            const { openBraceCount, closeBraceCount, openingCount, closingCount } = 
+                this.countBracesAndStructures(trimmed, leadingCloseBraceHandled);
             const netLPCChange = openingCount - closingCount;
             
             const netBraces = openBraceCount - closeBraceCount;
@@ -814,11 +610,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
             
-            if (openingMatches) {
-                lpcDataStructureDepth += openingMatches.length;
+            if (openingCount > 0) {
+                lpcDataStructureDepth += openingCount;
             }
             
-            if (closingMatches) {
+            if (closingCount > 0) {
                 lpcDataStructureDepth = Math.max(0, lpcDataStructureDepth - closingCount);
             }
             
@@ -844,6 +640,240 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         result = this.postProcessMultiLinePatterns(result);
 
         return result.join('\n');
+    }
+
+    /**
+     * Preprocess lines to split statements followed by closing braces onto separate lines
+     */
+    private preprocessLines(lines: string[]): string[] {
+        const preprocessedLines: string[] = [];
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            
+            // Skip lines that are comments
+            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+                preprocessedLines.push(line);
+                continue;
+            }
+            
+            // Remove comment portion from line before checking for ; } pattern
+            let codeOnly = trimmed;
+            const lineCommentPos = trimmed.indexOf('//');
+            if (lineCommentPos >= 0) {
+                codeOnly = trimmed.substring(0, lineCommentPos).trim();
+            }
+            const blockCommentPos = trimmed.indexOf('/*');
+            if (blockCommentPos >= 0) {
+                codeOnly = trimmed.substring(0, blockCommentPos).trim();
+            }
+            
+            // Check if line ends with ; } or ; } followed by more closing braces
+            // BUT exclude one-liner functions (e.g., "function() { statement; }")
+            // AND exclude one-liner control statements (e.g., "if(x) { statement; }")
+            const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
+            // For control statements, check if it starts with the keyword and has both { and } on same line
+            // Handle "else if" as a special case since it has two keywords
+            // Also check for if...else one-liners (e.g., "if(x) { y; } else { z; }")
+            const isOneLinerControl = (codeOnly.match(/^(if|while|for|foreach)\s*\(/) || codeOnly.match(/^else\s*(if\s*\(|{)/)) && codeOnly.includes('{') && codeOnly.includes('}');
+            const isOneLinerIfElse = codeOnly.match(/^if\s*\([^)]*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}\s*$/);
+            
+            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl && !isOneLinerIfElse) {
+                // Split the statement and closing braces
+                const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
+                if (match) {
+                    const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
+                    preprocessedLines.push(leadingSpaces + match[1].trim());
+                    preprocessedLines.push(leadingSpaces + match[2]);
+                } else {
+                    preprocessedLines.push(line);
+                }
+            } else {
+                preprocessedLines.push(line);
+            }
+        }
+        
+        return preprocessedLines;
+    }
+
+    /**
+     * Normalize spacing in code (operators, commas, semicolons, etc.)
+     */
+    private normalizeSpacing(code: string): string {
+        let normalized = code.replace(/,\s{2,}/g, ', ');
+        
+        // Normalize spacing in various contexts (but only outside strings)
+        // 1. Remove extra spaces before closing parentheses, semicolons, opening braces (2+ spaces)
+        normalized = this.replaceOutsideStrings(normalized, /\s{2,}([);{])/g, ' $1');
+        // 1a. Remove all spaces before semicolons
+        normalized = this.replaceOutsideStrings(normalized, /\s+;/g, ';');
+        // 1b. Remove spaces between }) and ) ONLY if not part of nested closure pattern
+        // DON'T remove `) )` if there are multiple `})` patterns (nested lambdas!)
+        // ALSO don't modify lines with })); or }) ) ) patterns (arrays inside function calls, nested lambdas)
+        const hasMultipleClosingParens = normalized.includes('}));') || 
+                                         /\}\)\s*\)\s*\)/.test(normalized) ||
+                                         /\}\)\s*\)\s*;/.test(normalized);
+        if (!hasMultipleClosingParens && (normalized.match(/\}\s*\)/g) || []).length < 2) {
+            normalized = this.replaceOutsideStrings(normalized, /\}\)\s+\)/g, '})');
+        }
+        
+        // 1b. Remove extra spaces after opening parentheses (but preserve space before closures/arrays)
+        // Remove spaces after ( EXCEPT when followed by ({ which indicates array/closure
+        normalized = this.replaceOutsideStrings(normalized, /\(\s+(?!\(\{)/g, '(');
+        
+        // 1c. Remove extra spaces in type declarations (e.g., "int    var" -> "int var")
+        normalized = this.replaceOutsideStrings(normalized, /\b(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s{2,}/g, '$1 ');
+        
+        // 1d. Normalize case statements - single space after 'case', no space before ':' in case labels
+        normalized = this.replaceOutsideStrings(normalized, /\bcase\s{2,}/g, 'case ');
+        normalized = this.replaceOutsideStrings(normalized, /\bcase\s+(.+?)\s+:/g, 'case $1:');
+        
+        // 2. Remove extra spaces in compound operators like ==, !=, <=, >=, +=, -=, etc.
+        normalized = this.replaceOutsideStrings(normalized, /([=!<>+\-*/%&|^])\s{2,}=/g, '$1=');
+        normalized = this.replaceOutsideStrings(normalized, /=\s{2,}([=>])/g, '=$1');
+        
+        // 3. Normalize spacing around assignment = operator (one space on each side)
+        // But don't touch compound operators that already have =, and exclude #'= pattern
+        normalized = this.replaceOutsideStrings(normalized, /([^=!<>+\-*/%&|^'])\s*=\s*([^=])/g, '$1 = $2');
+        
+        // 1e. Remove ALL spaces around operators after #' in function references (must come after assignment normalization)
+        normalized = this.replaceOutsideStrings(normalized, /#'\s*([=!<>&|+\-*/%^]+)\s*/g, "#'$1");
+        
+        // 4. Remove extra spaces before + operator (for string concatenation)
+        normalized = this.replaceOutsideStrings(normalized, /\s{2,}\+/g, ' +');
+        
+        // 4a. Add spaces around binary operators (+, -, *, /, %) when missing
+        // Match operator not preceded/followed by space, excluding compound operators and special cases
+        // Include " for +,-,* but not for /,% to avoid matching paths like "/std/object" and format specs like "%s"
+        // Also handle cases where space exists on one side but not the other
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
+        // Note: Multiply operator * NOT auto-spaced to avoid conflicts with pointer type declarations like "int *var"
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
+        
+        // 4b. Add spaces after commas in function calls when missing
+        normalized = this.replaceOutsideStrings(normalized, /,([a-zA-Z0-9_"'({])/g, ', $1');
+        
+        // 4c. Add spaces around += operator when missing
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+=([a-zA-Z0-9_"({])/g, '$1 += $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}]) \+=([a-zA-Z0-9_"({])/g, '$1 += $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+= ([a-zA-Z0-9_"({])/g, '$1 += $2');
+        
+        // 5. Normalize inline closures (: ... :) - single space after (: and before :)
+        normalized = this.replaceOutsideStrings(normalized, /\(:\s+/g, '(: ');
+        normalized = this.replaceOutsideStrings(normalized, /\s+:\)/g, ' :)');
+        // Also normalize multiple spaces inside inline closures to single spaces
+        normalized = this.replaceOutsideStrings(normalized, /\(:\s+(.+?)\s+:\)/g, (match, content) => {
+            // Normalize spaces inside the closure
+            const contentNormalized = content.replace(/\s{2,}/g, ' ');
+            return `(: ${contentNormalized} :)`;
+        });
+        
+        return normalized;
+    }
+
+    /**
+     * Count opening/closing braces and LPC data structures in a line
+     */
+    private countBracesAndStructures(trimmed: string, leadingCloseBraceHandled: boolean): {
+        openBraceCount: number;
+        closeBraceCount: number;
+        openingCount: number;
+        closingCount: number;
+    } {
+        let openBraceCount = 0;
+        let closeBraceCount = 0;
+        
+        // Track string and comment state to skip counting braces inside them
+        let braceInString = false;
+        let braceInLineComment = false;
+        let braceInBlockComment = false;
+        
+        for (let i = 0; i < trimmed.length; i++) {
+            const char = trimmed[i];
+            const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
+            const prevChar = i > 0 ? trimmed[i - 1] : '';
+            
+            // Track string state (skip escaped quotes)
+            if (char === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
+                braceInString = !braceInString;
+                continue;
+            }
+            
+            // Skip everything inside strings
+            if (braceInString) {
+                continue;
+            }
+            
+            // Track line comment state (but NOT #' function references!)
+            if (!braceInBlockComment && char === '/' && nextChar === '/') {
+                braceInLineComment = true;
+            }
+            
+            // Skip everything inside line comments
+            if (braceInLineComment) {
+                continue;
+            }
+            
+            // Track block comment state
+            if (char === '/' && nextChar === '*') {
+                braceInBlockComment = true;
+                i++; // Skip the *
+                continue;
+            }
+            
+            if (braceInBlockComment && char === '*' && nextChar === '/') {
+                braceInBlockComment = false;
+                i++; // Skip the /
+                continue;
+            }
+            
+            // Skip everything inside block comments
+            if (braceInBlockComment) {
+                continue;
+            }
+            
+            // Handle LPC closure structures: ({ ... }), ([ ... ]), (< ... >)
+            // These should NOT affect the indent level
+            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
+                // LPC data structure opening - don't count the brace for indentLevel
+                i++; // Skip the { [ or <
+                continue;
+            } else if (char === '{') {
+                // Regular brace opening (not part of closure syntax)
+                if (prevChar !== '(' && prevChar !== '[' && prevChar !== '<') {
+                    openBraceCount++;
+                }
+            } else if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
+                // LPC data structure closing - skip the closing paren
+                continue;
+            } else if (char === '}' || char === ']' || char === '>') {
+                // Check if it's part of a closure structure
+                if (nextChar === ')') {
+                    // This is }) ]) or >) - part of closure syntax, don't count
+                    i++; // Skip the )
+                    continue;
+                }
+                // Regular closing brace
+                if (char === '}') {
+                    if (i === 0 && leadingCloseBraceHandled) {
+                        continue;
+                    }
+                    closeBraceCount++;
+                }
+            }
+        }
+        
+        const openingMatches = trimmed.match(/\(\{|\(\[|\(\</g);
+        const closingMatches = trimmed.match(/\}\)|\]\)|\>\)/g);
+        
+        const openingCount = openingMatches ? openingMatches.length : 0;
+        const closingCount = closingMatches ? closingMatches.length : 0;
+        
+        return { openBraceCount, closeBraceCount, openingCount, closingCount };
     }
 
     private isInsideString(line: string, position: number): boolean {
