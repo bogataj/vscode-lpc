@@ -2,7 +2,7 @@
   "name": "lpc-ldmud-lp245",
   "displayName": "LPC Language Support (LDMUD/LP-245)",
   "description": "Language support, syntax highlighting and formatting for LPC with LDMUD game driver and LP-245 mudlib",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "publisher": "bogataj",
   "author": {
     "name": "Andreas Bogataj",

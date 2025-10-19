@@ -79,9 +79,12 @@ class LPCDocumentFormattingEditProvider {
             // BUT exclude one-liner functions (e.g., "function() { statement; }")
             // AND exclude one-liner control statements (e.g., "if(x) { statement; }")
             const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
-            // For control statements, just check if it starts with the keyword and has both { and } on same line
-            const isOneLinerControl = codeOnly.match(/^(if|while|for|foreach)\s*\(/) && codeOnly.includes('{') && codeOnly.includes('}');
-            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl) {
+            // For control statements, check if it starts with the keyword and has both { and } on same line
+            // Handle "else if" as a special case since it has two keywords
+            // Also check for if...else one-liners (e.g., "if(x) { y; } else { z; }")
+            const isOneLinerControl = (codeOnly.match(/^(if|while|for|foreach)\s*\(/) || codeOnly.match(/^else\s*(if\s*\(|{)/)) && codeOnly.includes('{') && codeOnly.includes('}');
+            const isOneLinerIfElse = codeOnly.match(/^if\s*\([^)]*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}\s*$/);
+            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl && !isOneLinerIfElse) {
                 // Split the statement and closing braces
                 const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
                 if (match) {
@@ -394,7 +397,26 @@ class LPCDocumentFormattingEditProvider {
                     stringContinuationColumn = -1;
                 }
             }
-            let normalizedTrimmed = trimmed.replace(/,\s{2,}/g, ', ');
+            // Split line into code and comment parts to avoid normalizing comment content
+            let codepart = trimmed;
+            let commentPart = '';
+            // Find // comment start, but only outside strings
+            let inString = false;
+            let lineCommentIndex = -1;
+            for (let i = 0; i < trimmed.length; i++) {
+                if (trimmed[i] === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
+                    inString = !inString;
+                }
+                if (!inString && trimmed[i] === '/' && i + 1 < trimmed.length && trimmed[i + 1] === '/') {
+                    lineCommentIndex = i;
+                    break;
+                }
+            }
+            if (lineCommentIndex >= 0) {
+                codepart = trimmed.substring(0, lineCommentIndex).trim();
+                commentPart = ' ' + trimmed.substring(lineCommentIndex); // Keep a space before comment
+            }
+            let normalizedTrimmed = codepart.replace(/,\s{2,}/g, ', ');
             // Normalize spacing in various contexts (but only outside strings)
             // 1. Remove extra spaces before closing parentheses, semicolons, opening braces (2+ spaces)
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s{2,}([);{])/g, ' $1');
@@ -420,6 +442,22 @@ class LPCDocumentFormattingEditProvider {
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /#'\s*([=!<>&|+\-*/%^]+)\s*/g, "#'$1");
             // 4. Remove extra spaces before + operator (for string concatenation)
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s{2,}\+/g, ' +');
+            // 4a. Add spaces around binary operators (+, -, *, /, %) when missing
+            // Match operator not preceded/followed by space, excluding compound operators and special cases
+            // Include " for +,-,* but not for /,% to avoid matching paths like "/std/object" and format specs like "%s"
+            // Also handle cases where space exists on one side but not the other
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
+            // 4b. Add spaces after commas in function calls when missing
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /,([a-zA-Z0-9_"({])/g, ', $1');
+            // 4c. Add spaces around += operator when missing
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+=([a-zA-Z0-9_"({])/g, '$1 += $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}]) \+=([a-zA-Z0-9_"({])/g, '$1 += $2');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+= ([a-zA-Z0-9_"({])/g, '$1 += $2');
             // 5. Normalize inline closures (: ... :) - single space after (: and before :)
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(:\s+/g, '(: ');
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s+:\)/g, ' :)');
@@ -441,7 +479,23 @@ class LPCDocumentFormattingEditProvider {
                     spaces = ' '.repeat(questionPos);
                 }
             }
-            const formattedLine = spaces + normalizedTrimmed;
+            // Re-add comment part if it was separated
+            let finalTrimmed = normalizedTrimmed + commentPart;
+            // Align inline comments with consistent spacing
+            if (commentPart) {
+                const trimmedCode = normalizedTrimmed.trim();
+                // Simple rule: 1 space for braces, 4 spaces for everything else
+                // (This can be adjusted if specific alignment is desired, but simpler is better)
+                if (trimmedCode.endsWith('{')) {
+                    // Opening braces get 1 space
+                    finalTrimmed = normalizedTrimmed + ' ' + commentPart.trim();
+                }
+                else {
+                    // Everything else gets 4 spaces minimum
+                    finalTrimmed = normalizedTrimmed + '    ' + commentPart.trim();
+                }
+            }
+            const formattedLine = spaces + finalTrimmed;
             // K&R function brace style: merge standalone { with previous function declaration
             // BUT: varargs functions use old-style braces (opening brace on new line)
             // AND: if there are comment lines between signature and brace, keep brace on new line

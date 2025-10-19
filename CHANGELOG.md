@@ -2,6 +2,33 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.4] - 2025-10-19
+
+### Fixed
+- **Binary Operator Spacing in One-liners**: Fixed missing spaces around operators in one-liner statements
+  - Added proper spacing for `+`, `-`, `*`, `/`, `%` operators (e.g., `arg+"_aptness"` → `arg + "_aptness"`)
+  - Added proper spacing for compound assignment operators like `+=`, `-=`, `*=`, `/=`, etc.
+  - Multiple normalization passes handle partially-spaced operators
+
+- **String Content Protection**: Fixed operators being incorrectly modified inside string literals
+  - Paths like `"/std/object"` no longer get spaces added (was becoming `" / std/object"`)
+  - Format specifiers like `"%s"` preserved correctly in strings
+  - Context-aware operator patterns exclude quotes where appropriate
+
+- **Comment Content Protection**: Fixed operator spacing being applied inside comments
+  - Comment content now separated before normalization is applied
+  - Prevents comments like `// Post-increment` from becoming `// Post - increment`
+  - String-aware comment detection avoids false positives from quotes in strings
+
+- **One-liner else-if Preservation**: Fixed `else if` statements being incorrectly split
+  - Pattern detection now handles `else if(...)` syntax properly
+  - Closing braces on `else if` one-liners stay on same line
+
+- **Consistent Inline Comment Spacing**: Standardized spacing before inline comments
+  - Lines ending with `{` get 1 space before comment
+  - All other inline comments get 4 spaces for consistency
+  - Removed complex alignment logic in favor of simple, predictable spacing
+
 ## [1.2.3] - 2025-10-19
 
 ### Fixed
