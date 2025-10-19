@@ -96,6 +96,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let previousLineNeedsContinuation = false;
         let previousLineWasFunctionCall = false;
         let previousCurrentIndent = 0;
+        let previousLineHadUnclosedBrackets = false;
+        let inMultiLineControlStatement = false;  // Track if we're in a multi-line if/while/for condition
         let stringContinuationColumn = -1;  // Track column position for string alignment
         let lpcStructureIndentStack: number[] = [];
         let inBlockComment = false;
@@ -261,7 +263,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 if (!trimmed.startsWith('{')) {
                     currentIndent = indentLevel + 1;
                 }
-                expectSingleStatementIndent = false;
+                // Clear flags after processing the statement body
+                // For multi-line control statements: only clear when processing the actual body
+                // (not the continuation lines of the condition)
+                const isConditionContinuation = inMultiLineControlStatement && previousLineHadUnclosedBrackets;
+                if (!isConditionContinuation) {
+                    expectSingleStatementIndent = false;
+                    if (inMultiLineControlStatement) {
+                        inMultiLineControlStatement = false;
+                    }
+                }
                 lastLineWasCaseLabel = false;
             }
             // Closing parentheses should align with the base indent of the line with opening bracket
@@ -386,6 +397,17 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 lastLineWasCaseLabel = false;
             }
 
+            // SPECIAL CASE: If previous line just closed brackets from a multi-line control statement,
+            // and we have expectSingleStatementIndent set, this line needs extra indent
+            if (expectSingleStatementIndent && 
+                inMultiLineControlStatement && 
+                !previousLineHadUnclosedBrackets &&
+                currentIndent === indentLevel) {
+                currentIndent = indentLevel + 1;
+                expectSingleStatementIndent = false;
+                inMultiLineControlStatement = false;
+            }
+
             // Special handling for ternary operator alignment and string continuation
             let spaces = '    '.repeat(currentIndent);
             
@@ -425,12 +447,19 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s{2,}([);{])/g, ' $1');
             // 1a. Remove all spaces before semicolons
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\s+;/g, ';');
-            // 1b. Remove spaces between }) and ) (array closing followed by function closing)
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\}\)\s+\)/g, '})');
+            // 1b. Remove spaces between }) and ) ONLY if not part of nested closure pattern
+            // DON'T remove `) )` if there are multiple `})` patterns (nested lambdas!)
+            // ALSO don't modify lines with })); or }) ) ) patterns (arrays inside function calls, nested lambdas)
+            const hasMultipleClosingParens = normalizedTrimmed.includes('}));') || 
+                                             /\}\)\s*\)\s*\)/.test(normalizedTrimmed) ||
+                                             /\}\)\s*\)\s*;/.test(normalizedTrimmed);
+            if (!hasMultipleClosingParens && (normalizedTrimmed.match(/\}\s*\)/g) || []).length < 2) {
+                normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\}\)\s+\)/g, '})');
+            }
             
             // 1b. Remove extra spaces after opening parentheses (but preserve space before closures/arrays)
-            // Remove spaces after (
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(\s+/g, '(');
+            // Remove spaces after ( EXCEPT when followed by ({ which indicates array/closure
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\(\s+(?!\(\{)/g, '(');
             
             // 1c. Remove extra spaces in type declarations (e.g., "int    var" -> "int var")
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /\b(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s{2,}/g, '$1 ');
@@ -461,11 +490,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
+            // Note: Multiply operator * NOT auto-spaced to avoid conflicts with pointer type declarations like "int *var"
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
             
             // 4b. Add spaces after commas in function calls when missing
-            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /,([a-zA-Z0-9_"({])/g, ', $1');
+            normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /,([a-zA-Z0-9_"'({])/g, ', $1');
             
             // 4c. Add spaces around += operator when missing
             normalizedTrimmed = this.replaceOutsideStrings(normalizedTrimmed, /([a-zA-Z0-9_")\]}])\+=([a-zA-Z0-9_"({])/g, '$1 += $2');
@@ -525,7 +555,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
             
-            const formattedLine = spaces + finalTrimmed;
+            // Don't add indentation to empty lines
+            const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
             
             // K&R function brace style: merge standalone { with previous function declaration
             // BUT: varargs functions use old-style braces (opening brace on new line)
@@ -609,6 +640,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     continue;
                 }
                 
+                // Handle LPC closure structures: ({ ... }), ([ ... ]), (< ... >)
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
                     const restOfLine = formattedLine.substring(col + 2);
                     const isCast = restOfLine.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s*\)/);
@@ -619,13 +651,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                         continue;
                     }
                     
-                    // Skip the opening paren of LPC structures
+                    // LPC structure opening: treat ({ as a single unit
+                    // Don't push to bracketStack - we'll handle it separately
                     col++;
                     continue;
                 }
                 
                 // Skip closing braces/brackets of LPC structures (}), ]), >))
                 if ((char === '}' || char === ']' || char === '>') && (nextChar === ')')) {
+                    // LPC structure closing: treat }) as a single unit
                     continue;
                 }
                 
@@ -661,13 +695,24 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
             previousCurrentIndent = currentIndent;
             previousLineNeedsContinuation = this.needsContinuation(trimmed, lpcDataStructureDepth > 0);
+            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
             
             previousLineWasFunctionCall = (trimmed.endsWith('(') || (this.hasUnclosedBrackets(trimmed) && !!trimmed.match(/\w+\s*\(/))) 
                 && !trimmed.match(/[{\[<]\s*\(\s*$/);
             
-            if (!trimmed.endsWith('{') && this.isControlStatementWithoutBrace(trimmed)) {
+            // Track when we start a control statement (if/while/for/foreach)
+            // Strip comments to check if line truly ends with { or not
+            const trimmedWithoutComments = this.stripCommentsAndStrings(trimmed);
+            if (!trimmedWithoutComments.endsWith('{') && this.isControlStatementWithoutBrace(trimmed)) {
                 expectSingleStatementIndent = true;
+                // If the control statement has unclosed brackets, it's multi-line
+                if (this.hasUnclosedBrackets(trimmed)) {
+                    inMultiLineControlStatement = true;
+                }
             }
+
+            // Don't clear the multi-line control statement flag here - 
+            // it will be cleared when we process the statement body
 
             let openBraceCount = 0;
             let closeBraceCount = 0;
@@ -693,7 +738,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     continue;
                 }
                 
-                // Track line comment state
+                // Track line comment state (but NOT #' function references!)
                 if (!braceInBlockComment && char === '/' && nextChar === '/') {
                     braceInLineComment = true;
                 }
@@ -721,19 +766,32 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     continue;
                 }
                 
+                // Handle LPC closure structures: ({ ... }), ([ ... ]), (< ... >)
+                // These should NOT affect the indent level
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                    // LPC data structure opening - don't count for indentLevel
+                    // LPC data structure opening - don't count the brace for indentLevel
+                    i++; // Skip the { [ or <
+                    continue;
                 } else if (char === '{') {
+                    // Regular brace opening (not part of closure syntax)
                     if (prevChar !== '(' && prevChar !== '[' && prevChar !== '<') {
                         openBraceCount++;
                     }
                 } else if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
-                    // LPC data structure closing - don't count for indentLevel
-                } else if (char === '}') {
-                    if (i === 0 && leadingCloseBraceHandled) {
+                    // LPC data structure closing - skip the closing paren
+                    continue;
+                } else if (char === '}' || char === ']' || char === '>') {
+                    // Check if it's part of a closure structure
+                    if (nextChar === ')') {
+                        // This is }) ]) or >) - part of closure syntax, don't count
+                        i++; // Skip the )
                         continue;
                     }
-                    if (nextChar !== ')' && nextChar !== ']' && nextChar !== '>') {
+                    // Regular closing brace
+                    if (char === '}') {
+                        if (i === 0 && leadingCloseBraceHandled) {
+                            continue;
+                        }
                         closeBraceCount++;
                     }
                 }
@@ -749,7 +807,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const netBraces = openBraceCount - closeBraceCount;
             if (netBraces > 0) {
                 indentLevel += netBraces;
-                expectSingleStatementIndent = false;
+                // Don't clear expectSingleStatementIndent if we're in a multi-line control statement
+                // waiting for its body (the braces might be in the condition, like in lambda expressions)
+                if (!inMultiLineControlStatement) {
+                    expectSingleStatementIndent = false;
+                }
             }
             
             if (openingMatches) {
@@ -851,10 +913,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
     private postProcessMultiLinePatterns(lines: string[]): string[] {
         const processed: string[] = [];
+        let insideLambda = 0; // Track nesting depth of lambda expressions
         
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i];
             const trimmed = line.trim();
+            
+            // Track lambda expression boundaries BEFORE processing the line
+            if (trimmed.includes('lambda(')) {
+                insideLambda++;
+            }
             
             // Only handle the specific pattern: remove trailing comma before closing brackets
             if (i > 0) {
@@ -873,44 +941,116 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             // But KEEP spaces in regular data arrays like ({ 1, 2, 3 })
             // IMPORTANT: Only apply to code, NOT to content inside strings
             
+            // Helper function to check if content looks like a closure
+            const isClosureContent = (content: string): boolean => {
+                const trimmed = content.trim();
+                // Contains function references like #'function
+                if (trimmed.includes("#'")) {
+                    return true;
+                }
+                // Contains quoted symbols like 'variable (but not string literals)
+                // This includes lambda parameter lists like {'x} or {'a, 'b}
+                if (trimmed.match(/'\w+/)) {
+                    return true;
+                }
+                // Check for lambda keyword
+                if (trimmed.includes('lambda')) {
+                    return true;
+                }
+                // Empty arrays or very simple values are not closures
+                if (trimmed.length === 0 || trimmed.match(/^[\d\w\s,"]+$/)) {
+                    return false;
+                }
+                return false;
+            };
+            
+            // Skip ALL processing for lines inside lambda expressions
+            // Note: We detect lambda END first, then decide whether to process
+            const lambdaEndPattern = trimmed.match(/\)\s*\)\s*;?\s*$/);
+            
+            if (insideLambda > 0) {
+                processed.push(line);
+                // Decrement AFTER pushing (line is protected)
+                if (lambdaEndPattern) {
+                    insideLambda--;
+                }
+                continue;
+            }
+            
             // 1. Remove spaces in type casts like ({int}), ({string*})
             line = line.replace(/\(\{\s*(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)(\*?)\s*\}\)/g, (match, type, star, offset) => {
                 return this.isInsideString(line, offset) ? match : `({${type}${star}})`;
             });
             
-            // 2. Process all ({ ... }) arrays, checking each one individually
-            line = line.replace(/\(\{\s*([^}]+?)\s*\}\)/g, (match, content, offset) => {
-                // Skip if inside a string
-                if (this.isInsideString(line, offset)) {
-                    return match;
-                }
-                
-                const trimmed = content.trim();
-                
-                // Skip empty arrays and type casts (already handled)
-                if (trimmed.length === 0 || trimmed.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\*?$/)) {
-                    return match;
-                }
-                
-                // Check if THIS specific array contains closure indicators
-                const isClosure = trimmed.includes("#'") || trimmed.match(/'/); // Contains quoted symbols
-                
-                if (isClosure) {
-                    // Closure array: remove spaces, but keep space before comments
-                    const needsSpaceAfter = trimmed.startsWith('/*');
-                    let result = needsSpaceAfter ? `({ ${trimmed}` : `({${trimmed}`;
-                    // Remove trailing space before })
-                    if (result.endsWith(' ')) {
-                        result = result.slice(0, -1);
-                    }
-                    return result + '})';
-                } else {
-                    // Regular data array: normalize to exactly one space on each side
-                    return `({ ${trimmed} })`;
-                }
-            });
+            // 2. Process single-line ({ ... }) arrays
+            // IMPORTANT: Skip lines with closure indicators OR multiple }) sequences
+            // because regex can't properly handle nested structures
+            const closureEndCount = (line.match(/\}\s*\)/g) || []).length;
+            const hasMultipleClosures = closureEndCount >= 2;
+            const hasClosureIndicators = line.includes('#\'') || trimmed.startsWith('({#\'');
+            const hasDoubleClosingParens = line.includes('}));'); // Protect patterns like min(({...}));
             
-            processed.push(line);
+            // Debug: log lines with multiple closures
+            if (closureEndCount >= 3) {
+                // This line should be protected - don't modify it!
+            }
+            
+            if (hasMultipleClosures || hasClosureIndicators || hasDoubleClosingParens) {
+                // Don't process lines with nested closures - keep line as-is
+                processed.push(line);
+            } else {
+                // Use a non-greedy match to handle multiple arrays on one line
+                let processedLine = '';
+                let lastIndex = 0;
+                const regex = /\(\{\s*([^}]*?)\s*\}\)/g;
+                let match;
+                
+                while ((match = regex.exec(line)) !== null) {
+                    // Skip if inside a string
+                    if (this.isInsideString(line, match.index)) {
+                        continue;
+                    }
+                    
+                    const fullMatch = match[0];
+                    const content = match[1];
+                    const trimmedContent = content.trim();
+                    
+                    // Skip empty arrays and type casts (already handled)
+                    if (trimmedContent.length === 0 || 
+                        trimmedContent.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\*?$/)) {
+                        processedLine += line.substring(lastIndex, match.index + fullMatch.length);
+                        lastIndex = match.index + fullMatch.length;
+                        continue;
+                    }
+                    
+                    // Check if THIS specific array contains closure indicators
+                    const isClosure = isClosureContent(trimmedContent);
+                    
+                    // Add everything before this match
+                    processedLine += line.substring(lastIndex, match.index);
+                    
+                    if (isClosure) {
+                        // Closure array: remove spaces, but keep space before comments
+                        const needsSpaceAfter = trimmedContent.startsWith('/*');
+                        let result = needsSpaceAfter ? `({ ${trimmedContent}` : `({${trimmedContent}`;
+                        // Remove trailing space before })
+                        if (result.endsWith(' ')) {
+                            result = result.slice(0, -1);
+                        }
+                        processedLine += result + '})';
+                    } else {
+                        // Regular data array: always normalize to exactly one space on each side
+                        // The original content includes spaces which we preserve
+                        processedLine += `({ ${trimmedContent} })`;
+                    }
+                    
+                    lastIndex = match.index + fullMatch.length;
+                }
+                
+                // Add any remaining part of the line
+                processedLine += line.substring(lastIndex);
+                processed.push(processedLine);
+            }
         }
         
         return processed;
@@ -964,9 +1104,81 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return parens > 0 || brackets > 0 || braces > 0;
     }
 
+    // Strip comments and strings from a line to get just the code
+    private stripCommentsAndStrings(line: string): string {
+        let result = '';
+        let inString = false;
+        let inLineComment = false;
+        let inBlockComment = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = i + 1 < line.length ? line[i + 1] : '';
+            const prevChar = i > 0 ? line[i - 1] : '';
+            
+            // Track string state (skip escaped quotes)
+            if (char === '"' && prevChar !== '\\') {
+                inString = !inString;
+                result += char;
+                continue;
+            }
+            
+            // Skip everything inside strings
+            if (inString) {
+                result += ' ';  // Replace with space to preserve positions
+                continue;
+            }
+            
+            // Track line comment state
+            if (!inBlockComment && char === '/' && nextChar === '/') {
+                inLineComment = true;
+            }
+            
+            // Skip everything inside line comments
+            if (inLineComment) {
+                result += ' ';  // Replace with space
+                continue;
+            }
+            
+            // Track block comment state
+            if (char === '/' && nextChar === '*') {
+                inBlockComment = true;
+                i++; // Skip the *
+                result += '  ';  // Two spaces for /*
+                continue;
+            }
+            
+            if (inBlockComment && char === '*' && nextChar === '/') {
+                inBlockComment = false;
+                i++; // Skip the /
+                result += '  ';  // Two spaces for */
+                continue;
+            }
+            
+            // Skip everything inside block comments
+            if (inBlockComment) {
+                result += ' ';
+                continue;
+            }
+            
+            result += char;
+        }
+        
+        return result.trimEnd();
+    }
+
     private isControlStatementWithoutBrace(line: string): boolean {
-        if (line.match(/^\s*(?:if|while|for|foreach)\s*\(/) && line.trimEnd().endsWith(')')) {
-            return true;
+        // Match control statements that start with if/while/for/foreach
+        // They may end with ) for single-line, or may have unclosed brackets for multi-line
+        if (line.match(/^\s*(?:if|while|for|foreach)\s*\(/)) {
+            // Single-line: ends with )
+            if (line.trimEnd().endsWith(')')) {
+                return true;
+            }
+            // Multi-line: has unclosed brackets
+            if (this.hasUnclosedBrackets(line)) {
+                return true;
+            }
         }
         
         if (line.match(/^\s*else\s*$/)) {

@@ -1159,3 +1159,323 @@ add_racial_damage_aptness(string type, int amount)
     else if(member(racial_damage_aptness, type + "_aptness")) { racial_damage_aptness[type + "_aptness"] += amount; }
     else { racial_damage_aptness += ([ type: amount, ]); }
 }
+
+// ============================================================================
+// LAMBDA/CLOSURE FORMATTER TESTS - Critical test cases for brace balance
+// ============================================================================
+
+void test_lambda_brace_balance_simple() {
+    closure simple;
+
+    // Simple nested lambda - ensure no extra braces added
+    simple = lambda(
+        ({'x}), ({
+            #'?, ({
+                #'>, 'x, 10}), ({
+                #'write, "Large\n"})
+        })
+    );
+}
+
+void test_lambda_brace_balance_complex() {
+    // Complex nested lambda from lib/living.c - the original failing case
+    // This should have exactly 3 closing braces before ));
+    filter_array(all_inventory(environment()) - ({ this_object() }),
+        lambda(({'a}),
+            ({#'?,
+                ({#'living,'a}),
+                ({#'?!,
+                    ({#'call_other,'a, "test_dark", 1}),
+                    ({#'?,
+                        ({#'call_other, 'a, "query_see_invis", 1}),
+                        ({#'call_other, 'a, "receive",
+                            cap_name, level, "movement", msg})})})})
+        ));
+}
+
+void test_lambda_multiple_nested() {
+    // Triple nested closure with multiple branches
+    closure complex = lambda(
+        ({'a, 'b}), ({
+            #'?, ({
+                #'>, 'a, 'b}), ({
+                #'?, ({
+                    #'>, 'a, 100}), ({
+                    #'write, "Very large"}), ({
+                    #'write, "Large"})}), ({
+                #'write, "Small"})
+        })
+    );
+}
+
+void test_function_references() {
+    closure ref;
+
+    // Function references should be preserved exactly
+    ref = #'write;
+    ref = #'living;
+    ref = #'call_other;
+    ref = #'query_name;
+
+    // Operator references
+    ref = #'?;
+    ref = #'?!;
+    ref = #'||;
+    ref = #'&&;
+    ref = #'+;
+    ref = #'-;
+    ref = #'*;
+    ref = #'/;
+    ref = #'%;
+    ref = #'>;
+    ref = #'<;
+    ref = #'>=;
+    ref = #'<=;
+    ref = #'==;
+    ref = #'!=;
+    ref = #'[;
+}
+
+void test_quoted_symbols() {
+    // Quoted symbols in closures
+    closure c1 = lambda(({'x, 'y, 'z}), ({#'+, 'x, 'y, 'z}));
+
+    // Single quoted symbol
+    closure c2 = lambda(({'item}), ({#'call_other, 'item, "query_weight"}));
+
+    // Multiple operations with quoted symbols
+    closure c3 = lambda(
+        ({'a, 'b}), ({
+            #'*, ({#'+, 'a, 'b}), ({#'-, 'a, 'b})})
+    );
+}
+
+void test_unbound_lambda_variations() {
+    closure unbound;
+
+    // Simple unbound lambda
+    unbound = unbound_lambda(
+        ({'arg1, 'arg2}), ({
+            #'+, 'arg1, 'arg2})
+    );
+
+    // Unbound lambda with nested operations
+    unbound = unbound_lambda(
+        ({'item, 'dest}), ({
+            #'call_other, 'item, "move", 'dest})
+    );
+
+    // Complex unbound lambda with conditionals
+    unbound = unbound_lambda(
+        ({'ob}), ({
+            #'?, ({
+                #'living, 'ob}), ({
+                #'call_other, 'ob, "query_hp"}), ({
+                0})
+        })
+    );
+}
+
+void test_filter_map_with_closures() {
+    mixed *arr = ({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    object *obs;
+
+    // Filter with complex lambda
+    arr = filter(arr, lambda(({'x}), ({#'>, 'x, 5})));
+
+    // Map with nested operations
+    arr = map(arr, lambda(({'x}), ({#'*, 'x, 2})));
+
+    // Filter with conditional logic
+    arr = filter(arr, lambda(
+        ({'x}), ({
+            #'?, ({
+                #'>, 'x, 10}), ({
+                #'?, ({
+                    #'<, 'x, 20}), ({
+                    1}), ({
+                    0})}), ({
+                0})
+        })
+    ));
+
+    // Map on objects with function references
+    obs = filter(all_inventory(this_object()),
+        lambda(({'a}), ({#'living, 'a})));
+}
+
+void test_mixed_data_and_closure_arrays() {
+    mixed *data_array = ({ 1, 2, 3, 4, 5 });
+    closure c;
+
+    // Regular data array - should have spaces
+    data_array = ({ "one", "two", "three" });
+    data_array = ({ 1, 2, 3 }) + ({ 4, 5, 6 });
+
+    // Closure arrays - should have no spaces
+    c = lambda(({'x}), ({#'+, 'x, 1}));
+
+    // Mixed in same expression
+    data_array = ({ 1, 2, 3 }) + filter(({ 4, 5, 6 }),
+        lambda(({'x}), ({#'>, 'x, 4})));
+}
+
+void test_lambda_with_strings() {
+    closure c;
+
+    // Lambda with string arguments
+    c = lambda(
+        ({'name}), ({
+            #'write, ({#'+, "Hello, ", 'name, "\n"})})
+    );
+
+    // Lambda with multiple string operations
+    c = lambda(
+        ({'msg, 'target}), ({
+            #'call_other, 'target, "receive", ({#'+, "You hear: ", 'msg})})
+    );
+}
+
+void test_deeply_nested_closures() {
+    // Four levels of nesting
+    closure deep = lambda(
+        ({'a}), ({
+            #'?, ({
+                #'>, 'a, 0}), ({
+                #'?, ({
+                    #'>, 'a, 10}), ({
+                    #'?, ({
+                        #'>, 'a, 100}), ({
+                        #'write, "Huge"}), ({
+                        #'write, "Large"})}), ({
+                    #'write, "Medium"})}), ({
+                #'write, "Small"})
+        })
+    );
+}
+
+void test_closure_array_in_function_call() {
+    // Closure as direct argument
+    set_heart_beat(lambda(0, ({#'heart_beat})));
+
+    // Multiple closures as arguments
+    call_out(lambda(0, ({#'delayed_action, "test"})), 5);
+
+    // Nested function calls with closures
+    write(sprintf("%O\n",
+        map(({ 1, 2, 3 }),
+            lambda(({'x}), ({#'*, 'x, 'x})))));
+}
+
+void test_sprintf_with_closures() {
+    // Lambda using sprintf inside
+    closure format = lambda(
+        ({'a}), ({
+            #'sprintf, "%s %d %d\n",
+            ({#'[, 'a, 0}),
+            ({#'[, 'a, 1}),
+            ({#'[, 'a, 2})})
+    );
+}
+
+void test_real_world_pattern_from_living() {
+    // Exact pattern that was failing in lib/living.c line 374
+    filter_array(all_inventory(environment()) - ({ this_object() }),
+        lambda(({'a}),
+            ({#'?,
+                ({#'living, 'a}),
+                ({#'?!,
+                    ({#'call_other, 'a, "test_dark", 1}),
+                    ({#'?,
+                        ({#'call_other, 'a, "query_see_invis", 1}),
+                        ({#'call_other, 'a, "receive",
+                            cap_name, level, "movement", msg})})})})
+        ));
+}
+
+void test_edge_case_empty_closures() {
+    closure empty;
+
+    // Empty closure body
+    empty = lambda(({'x}), ({#'noop}));
+
+    // Closure returning constant
+    empty = lambda(({'x}), ({0}));
+    empty = lambda(({'x}), ({1}));
+}
+
+void test_closure_with_array_operations() {
+    closure arr_op;
+
+    // Array indexing in closure
+    arr_op = lambda(
+        ({'arr, 'idx}), ({
+            #'[, 'arr, 'idx})
+    );
+
+    // Array range in closure
+    arr_op = lambda(
+        ({'arr}), ({
+            #'[.., 'arr, 0, 5})
+    );
+}
+
+void test_closure_with_array_operations() {
+    closure arr_op;
+
+    // Array indexing in closure
+    arr_op = lambda(
+        ({'arr, 'idx}), ({
+            #'[, 'arr, 'idx})
+    );
+
+    // Array range in closure
+    arr_op = lambda(
+        ({'arr}), ({
+            #'[.., 'arr, 0, 5})
+    );
+
+    // Real-world nested lambda (4 levels) from lib/living.c
+    if (query_level() >= 3) {
+        arr = filter_array(arr,
+            lambda(({'x}), ({#'!=,
+                ({#'filter_array, 'x, lambda(({'a}),
+                    ({#'&&, ({#'environment, 'a}),
+                        ({#'==, ({#'query_cap_name, ({#'environment, 'a})}),
+                            cap_name, level, "movement", msg }) }) )}) }) ));
+    } else {
+        arr = filter_array(arr,
+            lambda(({'x}),({#'!=,
+                ({#'filter_array, 'x, lambda(({'a}),
+                    ({#'&&, ({#'environment, 'a}),
+                        ({#'==, ({#'query_cap_name, ({#'environment, 'a})}),
+                            cap_name, level, "movement", msg }) }) )}) }) ));
+    }
+}
+
+int preserve_closing() {
+    int evasion;
+    int evasion2 = 200;     // example value
+    int max_weight, weight_penalty;
+
+    ///    dodge_chance -= local_weight/4;
+    max_weight = this_object()->query_max_weight();
+    // If max_weight<1, object is most likely ghost or bugged,
+    if (max_weight < 1)
+        return 0;
+
+    evasion = min( ({ 100, evasion2 }) );
+    evasion2 = min(({ 100, evasion }));
+
+    weight_penalty = round(local_weight * 100.0 / max_weight);
+    weight_penalty -= round(weight_penalty * evasion / 150.0);  // 66% reduction to weight penalty with max evasion
+    if(weight_penalty > 95) { weight_penalty = 95; }
+    if(weight_penalty < 0) { weight_penalty = 0; }
+
+    if(sizeof(filter_array(all_inventory(), lambda(({ 'a }),
+        ({#'call_other, 'a, "query_worn"}) ) ) ) )
+        quit_yes_no();
+    else
+        start_quit();
+    return 1;
+}
