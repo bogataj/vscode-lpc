@@ -2,6 +2,39 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.6] - 2025-10-19
+
+### Fixed
+- **Closing Brace/Paren Corruption**: Fixed formatter removing closing braces and parentheses
+  - `min(({ 100, evasion2 }));` no longer becomes `min(({ 100, evasion2 });` (missing closing brace)
+  - `lambda(...}) ) ) )` no longer becomes `lambda(...}) ) )` (missing closing paren)
+  - Added regex protection for `}));` and `}) ) )` patterns in nested structures
+  
+- **Space Removal in Closure Syntax**: Fixed incorrect space removal in `( ({` patterns
+  - `( ({ ...` patterns now preserved correctly
+  - Added negative lookahead in regex: `/\(\s+(?!\(\{)/g` to protect LPC closure syntax
+  
+- **Multi-line Control Statement Indentation**: Fixed incorrect indentation of multi-line if/while/for statement bodies
+  - Control statement conditions spanning multiple lines now properly detected
+  - Statement body after multi-line condition correctly indented
+  - Fixed `isControlStatementWithoutBrace()` to check for unclosed brackets
+  
+- **Inline Comments with Braces**: Fixed over-indentation when inline comments contain braces
+  - Lines like `if (x) { // comment with {` no longer cause extra indentation
+  - Added `stripCommentsAndStrings()` helper for accurate brace counting
+  - Comments now properly stripped before checking if line ends with `{`
+
+### Improved
+- **Code Organization**: Refactored formatProvider.ts for better maintainability
+  - Extracted `preprocessLines()` method (52 lines) - splits statements with closing braces
+  - Extracted `normalizeSpacing()` method (77 lines) - all spacing normalization rules
+  - Extracted `handleSpecialLine()` method (136 lines) - comments, empty lines, preprocessor
+  - Extracted `alignInlineComment()` method (33 lines) - aligns comments to column multiples
+  - Extracted `countBracesAndStructures()` method (106 lines) - counts braces excluding strings/comments
+  - Reduced main `formatLPCCode()` method from 810 to ~500 lines (38% reduction)
+  - Removed 135 lines of redundant comments
+  - Total file reduced from 1198 to 1095 lines while improving organization
+
 ## [1.2.5] - 2025-10-19
 
 ### Improved
