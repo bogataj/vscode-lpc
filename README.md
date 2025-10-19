@@ -95,6 +95,18 @@ MIT License - see LICENSE file for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
+### 1.2.5 - 2025-10-19
+- Improved column-aligned inline comment spacing for better readability
+- Comments align to multiples of 4 columns with minimum 2 spaces
+- Creates clean visual columns for related statements
+
+### 1.2.4 - 2025-10-19
+- Fixed binary operator spacing in one-liner statements (e.g., `arg+"_aptness"` → `arg + "_aptness"`)
+- Fixed string content protection - paths like `"/std/object"` no longer modified
+- Fixed comment content protection - operators not added inside comments
+- Fixed `else if` one-liner preservation
+- Added proper spacing for compound assignment operators (`+=`, `-=`, etc.)
+
 ### 1.2.3 - 2025-10-19
 - Fixed brace indentation when opening brace has inline comment
 - Fixed one-liner if/while/for/foreach statements being incorrectly split
