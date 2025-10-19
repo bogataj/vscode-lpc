@@ -64,100 +64,54 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const line = lines[i];
             const trimmed = line.trim();
             
-            if (!inBlockComment && trimmed.includes('/*')) {
-                // Check if it's an inline comment (both /* and */ on same line)
-                const startPos = trimmed.indexOf('/*');
-                const endPos = trimmed.indexOf('*/', startPos);
-                if (endPos === -1) {
-                    // Multi-line block comment starts
-                    inBlockComment = true;
-                    blockCommentIndent = indentLevel;
-                    const spaces = '    '.repeat(blockCommentIndent);
-                    
-                    // Check if opening line has text after /*
-                    const afterComment = trimmed.substring(startPos + 2).trim();
-                    if (afterComment.length > 0) {
-                        // Normalize: split "/* text" into "/*" and " * text"
-                        result.push(spaces + '/*');
-                        result.push(spaces + ' * ' + afterComment);
-                        continue;
-                    } else {
-                        // Opening "/*" alone - just push it
-                        result.push(spaces + '/*');
-                        continue;
-                    }
+            // Handle special lines (comments, empty, preprocessor)
+            const specialLineResult = this.handleSpecialLine(
+                trimmed, 
+                indentLevel,
+                {
+                    inBlockComment,
+                    blockCommentIndent,
+                    preprocessorIndentStack
                 }
-            }
+            );
             
-            if (inBlockComment) {
-                const spaces = '    '.repeat(blockCommentIndent);
-                // Always use aligned asterisk format: " * text"
-                let formattedComment = trimmed;
-                
-                if (trimmed.startsWith('*') && !trimmed.startsWith('*/')) {
-                    // Continuation line: ensure " * text" format
-                    formattedComment = ' * ';
-                    const textAfterAsterisk = trimmed.substring(1).trim();
-                    if (textAfterAsterisk.length > 0) {
-                        formattedComment += textAfterAsterisk;
+            if (specialLineResult.handled) {
+                if (specialLineResult.output !== undefined) {
+                    if (Array.isArray(specialLineResult.output)) {
+                        result.push(...specialLineResult.output);
+                    } else {
+                        result.push(specialLineResult.output);
                     }
-                } else if (trimmed.startsWith('*/')) {
-                    // Closing line: " */"
-                    formattedComment = ' */';
-                } else if (trimmed.length > 0) {
-                    // Line without asterisk - treat as continuation text
-                    formattedComment = ' * ' + trimmed;
                 }
                 
-                result.push(spaces + formattedComment);
+                // Update state from the handler
+                if (specialLineResult.inBlockComment !== undefined) {
+                    inBlockComment = specialLineResult.inBlockComment;
+                }
+                if (specialLineResult.blockCommentIndent !== undefined) {
+                    blockCommentIndent = specialLineResult.blockCommentIndent;
+                }
+                if (specialLineResult.updateIndentLevel !== undefined) {
+                    indentLevel = specialLineResult.updateIndentLevel;
+                }
                 
-                if (trimmed.includes('*/')) {
-                    inBlockComment = false;
+                // Reset flags for special lines
+                if (specialLineResult.resetFlags) {
                     previousLineNeedsContinuation = false;
                     expectSingleStatementIndent = false;
                     lastLineWasCaseLabel = false;
                 }
-                continue;
-            }
-            
-            if (trimmed.startsWith('//')) {
-                const spaces = '    '.repeat(indentLevel);
-                result.push(spaces + trimmed);
-                previousLineNeedsContinuation = false;
-                expectSingleStatementIndent = false;
-                lastLineWasCaseLabel = false;
-                continue;
-            }
-            
-            if (!trimmed) {
-                result.push('');
-                previousLineNeedsContinuation = false;
-                bracketStack.length = 0; 
-                continue;
-            }
-
-            if (trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
-                // Handle preprocessor directives
-                if (trimmed.match(/^#\s*if/)) {
-                    // #ifdef, #ifndef, #if - save current indent level
-                    preprocessorIndentStack.push(indentLevel);
-                } else if (trimmed.match(/^#\s*else/) || trimmed.match(/^#\s*elif/)) {
-                    // #else, #elif - restore indent level from before #if
-                    if (preprocessorIndentStack.length > 0) {
-                        indentLevel = preprocessorIndentStack[preprocessorIndentStack.length - 1];
-                    }
-                } else if (trimmed.match(/^#\s*endif/)) {
-                    // #endif - pop the saved indent level
-                    if (preprocessorIndentStack.length > 0) {
-                        preprocessorIndentStack.pop();
-                    }
+                
+                if (specialLineResult.clearBracketStack) {
+                    bracketStack.length = 0;
                 }
-                result.push(trimmed);
-                previousLineNeedsContinuation = false;
-                lastLineWasPreprocessor = true;
+                
+                if (specialLineResult.wasPreprocessor) {
+                    lastLineWasPreprocessor = true;
+                }
+                
                 continue;
             }
-            
             lastLineWasPreprocessor = false;
 
             let currentIndent = indentLevel;
@@ -694,6 +648,137 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         return preprocessedLines;
+    }
+
+    /**
+     * Handle special lines (comments, empty lines, preprocessor directives)
+     * Returns information about whether the line was handled and what output to produce
+     */
+    private handleSpecialLine(
+        trimmed: string,
+        indentLevel: number,
+        state: {
+            inBlockComment: boolean;
+            blockCommentIndent: number;
+            preprocessorIndentStack: number[];
+        }
+    ): {
+        handled: boolean;
+        output?: string | string[];
+        inBlockComment?: boolean;
+        blockCommentIndent?: number;
+        updateIndentLevel?: number;
+        resetFlags?: boolean;
+        clearBracketStack?: boolean;
+        wasPreprocessor?: boolean;
+    } {
+        // Handle block comment start
+        if (!state.inBlockComment && trimmed.includes('/*')) {
+            const startPos = trimmed.indexOf('/*');
+            const endPos = trimmed.indexOf('*/', startPos);
+            if (endPos === -1) {
+                // Multi-line block comment starts
+                const spaces = '    '.repeat(indentLevel);
+                const afterComment = trimmed.substring(startPos + 2).trim();
+                
+                if (afterComment.length > 0) {
+                    // Split "/* text" into "/*" and " * text"
+                    return {
+                        handled: true,
+                        output: [spaces + '/*', spaces + ' * ' + afterComment],
+                        inBlockComment: true,
+                        blockCommentIndent: indentLevel
+                    };
+                } else {
+                    // Opening "/*" alone
+                    return {
+                        handled: true,
+                        output: spaces + '/*',
+                        inBlockComment: true,
+                        blockCommentIndent: indentLevel
+                    };
+                }
+            }
+        }
+        
+        // Handle block comment continuation/end
+        if (state.inBlockComment) {
+            const spaces = '    '.repeat(state.blockCommentIndent);
+            let formattedComment = trimmed;
+            
+            if (trimmed.startsWith('*') && !trimmed.startsWith('*/')) {
+                // Continuation line: ensure " * text" format
+                formattedComment = ' * ';
+                const textAfterAsterisk = trimmed.substring(1).trim();
+                if (textAfterAsterisk.length > 0) {
+                    formattedComment += textAfterAsterisk;
+                }
+            } else if (trimmed.startsWith('*/')) {
+                // Closing line: " */"
+                formattedComment = ' */';
+            } else if (trimmed.length > 0) {
+                // Line without asterisk - treat as continuation text
+                formattedComment = ' * ' + trimmed;
+            }
+            
+            const isClosing = trimmed.includes('*/');
+            return {
+                handled: true,
+                output: spaces + formattedComment,
+                inBlockComment: !isClosing,
+                resetFlags: isClosing
+            };
+        }
+        
+        // Handle line comments
+        if (trimmed.startsWith('//')) {
+            const spaces = '    '.repeat(indentLevel);
+            return {
+                handled: true,
+                output: spaces + trimmed,
+                resetFlags: true
+            };
+        }
+        
+        // Handle empty lines
+        if (!trimmed) {
+            return {
+                handled: true,
+                output: '',
+                resetFlags: true,
+                clearBracketStack: true
+            };
+        }
+        
+        // Handle preprocessor directives
+        if (trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
+            let newIndentLevel: number | undefined;
+            
+            if (trimmed.match(/^#\s*if/)) {
+                // #ifdef, #ifndef, #if - save current indent level
+                state.preprocessorIndentStack.push(indentLevel);
+            } else if (trimmed.match(/^#\s*else/) || trimmed.match(/^#\s*elif/)) {
+                // #else, #elif - restore indent level from before #if
+                if (state.preprocessorIndentStack.length > 0) {
+                    newIndentLevel = state.preprocessorIndentStack[state.preprocessorIndentStack.length - 1];
+                }
+            } else if (trimmed.match(/^#\s*endif/)) {
+                // #endif - pop the saved indent level
+                if (state.preprocessorIndentStack.length > 0) {
+                    state.preprocessorIndentStack.pop();
+                }
+            }
+            
+            return {
+                handled: true,
+                output: trimmed,
+                updateIndentLevel: newIndentLevel,
+                resetFlags: true,
+                wasPreprocessor: true
+            };
+        }
+        
+        return { handled: false };
     }
 
     /**
