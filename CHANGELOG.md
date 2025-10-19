@@ -2,6 +2,19 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.3] - 2025-10-19
+
+### Fixed
+- **Brace Indentation with Comments**: Fixed incorrect indentation when opening brace has inline comment
+  - Opening braces followed by comments (e.g., `{ // comment`) now correctly detected
+  - Changed exact match check to prefix check for brace detection
+  - Prevents extra indentation level being added after if statements with commented braces
+
+- **One-liner Statement Preservation**: Fixed one-liner if/while/for/foreach statements being incorrectly split
+  - One-liner control statements now preserved intact (e.g., `if(x) { return y; }`)
+  - Improved pattern detection to handle complex nested function calls in conditions
+  - Simplified detection logic to check for keyword and brace presence instead of parsing parentheses
+
 ## [1.2.2] - 2025-10-18
 
 ### Fixed

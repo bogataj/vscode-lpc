@@ -77,8 +77,11 @@ class LPCDocumentFormattingEditProvider {
             }
             // Check if line ends with ; } or ; } followed by more closing braces
             // BUT exclude one-liner functions (e.g., "function() { statement; }")
+            // AND exclude one-liner control statements (e.g., "if(x) { statement; }")
             const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
-            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction) {
+            // For control statements, just check if it starts with the keyword and has both { and } on same line
+            const isOneLinerControl = codeOnly.match(/^(if|while|for|foreach)\s*\(/) && codeOnly.includes('{') && codeOnly.includes('}');
+            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl) {
                 // Split the statement and closing braces
                 const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
                 if (match) {
@@ -256,7 +259,7 @@ class LPCDocumentFormattingEditProvider {
                 }
             }
             else if (expectSingleStatementIndent) {
-                if (trimmed !== '{') {
+                if (!trimmed.startsWith('{')) {
                     currentIndent = indentLevel + 1;
                 }
                 expectSingleStatementIndent = false;

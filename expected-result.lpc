@@ -800,6 +800,11 @@ void test_comments() {
     // FIXME: This needs fixing
     // NOTE: Important note
     // HACK: Temporary solution
+
+    if (str == "if(x){y}else{z}")
+    { // No spaces added
+        write("String comparison works\n");
+    }
 }
 
 // ============================================================================
@@ -1137,4 +1142,12 @@ void test_macros() {
     if (__DEBUG__) {
         debug_message("Debug mode enabled");
     }
+}
+
+query_racial_damage_aptness(string arg)
+{
+    if(arg && member(racial_damage_aptness,arg+"_aptness")) { return racial_damage_aptness[arg+"_aptness"]; }
+    if(arg && member(racial_damage_aptness,arg)) { return racial_damage_aptness[arg]; }
+
+    if(!arg) return racial_damage_aptness;
 }

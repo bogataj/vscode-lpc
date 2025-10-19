@@ -95,6 +95,11 @@ MIT License - see LICENSE file for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
+### 1.2.3 - 2025-10-19
+- Fixed brace indentation when opening brace has inline comment
+- Fixed one-liner if/while/for/foreach statements being incorrectly split
+- Improved pattern detection for complex nested function calls
+
 ### 1.2.2 - 2025-10-18
 - **Critical Fix**: Comments now completely ignored during formatting - prevents indentation corruption
 - Fixed function name highlighting in declarations
