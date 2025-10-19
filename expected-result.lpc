@@ -901,6 +901,16 @@ void test_strings_not_formatted() {
     // Escaped quotes in strings
     str = "She said: \"Use ({'closure}) here\"";
     str = "Path: \"c:\\test\\({file})\\data\"";
+
+    // Continue this string on the next line
+    str = "\
+Creator: " + channels[channel, CREATOR] + "\n\
+Flags  : " + implode(channels[channel, FLAGS], ", ") + "\n\
+Topic  : " + fix_string(channels[channel, TOPICS]) + "\n\
+,-------------------------------------------------.\n\
+| Listener       | Idle  | Listener       | Idle  |\n\
+|-------------------------------------------------|\n";
+
 }
 
 // FINAL TEST - Real-world pattern

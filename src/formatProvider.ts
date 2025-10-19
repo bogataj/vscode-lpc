@@ -59,10 +59,19 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const bracketStack: Array<{ char: string; column: number; lineIndex: number; assignedIndent: number }> = [];
         let preprocessorIndentStack: number[] = [];
         let lastLineWasPreprocessor = false;
+        let inBackslashStringContinuation = false;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const trimmed = line.trim();
+            
+            // Handle backslash string continuation - preserve original line as-is
+            if (inBackslashStringContinuation) {
+                result.push(line);
+                // Check if this line also ends with backslash to continue
+                inBackslashStringContinuation = line.trimEnd().endsWith('\\');
+                continue;
+            }
             
             const specialLineResult = this.handleSpecialLine(
                 trimmed, 
@@ -359,6 +368,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 result.push(fixedLine);
             } else if (!mergedWithPrevLine) {
                 result.push(formattedLine);
+            }
+            
+            // Check if this line starts a backslash string continuation
+            // This happens when a line ends with \ inside a string
+            if (this.endsWithBackslashInString(trimmed)) {
+                inBackslashStringContinuation = true;
             }
             
             let charInString = false;
@@ -840,6 +855,46 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         return inString;
+    }
+
+    private endsWithBackslashInString(line: string): boolean {
+        // Check if the line ends with a backslash and we're inside a string
+        const trimmedLine = line.trimEnd();
+        if (!trimmedLine.endsWith('\\')) {
+            return false;
+        }
+        
+        // Walk through the line to determine if we're in a string at the end
+        let inString = false;
+        let escaped = false;
+        
+        for (let i = 0; i < trimmedLine.length; i++) {
+            const char = trimmedLine[i];
+            
+            if (escaped) {
+                escaped = false;
+                // If this is the last char and it's a backslash, we're continuing the string
+                if (i === trimmedLine.length - 1 && char === '\\' && inString) {
+                    return true;
+                }
+                continue;
+            }
+            
+            if (char === '\\') {
+                escaped = true;
+                // Check if this is the last character
+                if (i === trimmedLine.length - 1 && inString) {
+                    return true;
+                }
+                continue;
+            }
+            
+            if (char === '"') {
+                inString = !inString;
+            }
+        }
+        
+        return false;
     }
 
     private replaceOutsideStrings(line: string, pattern: RegExp, replacement: string | ((match: string, ...args: any[]) => string)): string {

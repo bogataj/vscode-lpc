@@ -2,6 +2,15 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.7] - 2025-10-19
+
+### Fixed
+- **Backslash String Continuation**: Fixed incorrect indentation of multi-line strings using backslash continuation
+  - Lines continuing with `\` at end of line are now preserved as-is
+  - String literals like `"text\` followed by continuation lines maintain original formatting
+  - Added `endsWithBackslashInString()` method to detect backslash continuations
+  - Prevents formatter from adding unwanted indentation to string content
+
 ## [1.2.6] - 2025-10-19
 
 ### Fixed
