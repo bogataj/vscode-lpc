@@ -362,34 +362,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
             
-            // Re-add comment part if it was separated
-            let finalTrimmed = normalizedTrimmed + commentPart;
-            
-            // Align inline comments to consistent columns
-            if (commentPart) {
-                const trimmedCode = normalizedTrimmed.trim();
-                const codeLength = trimmedCode.length;
-                
-                // Special case: Lines ending with opening brace get 1 space
-                if (trimmedCode.endsWith('{')) {
-                    finalTrimmed = normalizedTrimmed + ' ' + commentPart.trim();
-                } else {
-                    // Align comments to columns: minimum 2 spaces, then to multiples of 4
-                    // This creates visual alignment for similar-length statements
-                    const indent = normalizedTrimmed.length - codeLength;
-                    const minSpacing = 2;
-                    
-                    // Calculate target column relative to code start (multiples of 4)
-                    // Add minSpacing to code length, round up to nearest multiple of 4
-                    const targetColumn = Math.ceil((codeLength + minSpacing) / 4) * 4;
-                    
-                    // Calculate absolute position and spaces needed
-                    const targetPosition = indent + targetColumn;
-                    const spacesNeeded = Math.max(minSpacing, targetPosition - normalizedTrimmed.length);
-                    
-                    finalTrimmed = normalizedTrimmed + ' '.repeat(spacesNeeded) + commentPart.trim();
-                }
-            }
+            // Re-add comment part and align it
+            const finalTrimmed = this.alignInlineComment(normalizedTrimmed, commentPart);
             
             // Don't add indentation to empty lines
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
@@ -858,6 +832,38 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         });
         
         return normalized;
+    }
+
+    /**
+     * Align inline comments to consistent columns
+     */
+    private alignInlineComment(normalizedCode: string, commentPart: string): string {
+        if (!commentPart) {
+            return normalizedCode;
+        }
+        
+        const trimmedCode = normalizedCode.trim();
+        const codeLength = trimmedCode.length;
+        
+        // Special case: Lines ending with opening brace get 1 space
+        if (trimmedCode.endsWith('{')) {
+            return normalizedCode + ' ' + commentPart.trim();
+        }
+        
+        // Align comments to columns: minimum 2 spaces, then to multiples of 4
+        // This creates visual alignment for similar-length statements
+        const indent = normalizedCode.length - codeLength;
+        const minSpacing = 2;
+        
+        // Calculate target column relative to code start (multiples of 4)
+        // Add minSpacing to code length, round up to nearest multiple of 4
+        const targetColumn = Math.ceil((codeLength + minSpacing) / 4) * 4;
+        
+        // Calculate absolute position and spaces needed
+        const targetPosition = indent + targetColumn;
+        const spacesNeeded = Math.max(minSpacing, targetPosition - normalizedCode.length);
+        
+        return normalizedCode + ' '.repeat(spacesNeeded) + commentPart.trim();
     }
 
     /**
