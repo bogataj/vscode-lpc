@@ -2,6 +2,15 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.5] - 2025-10-19
+
+### Improved
+- **Column-Aligned Inline Comments**: Enhanced inline comment alignment for better readability
+  - Lines ending with `{` get 1 space before comment
+  - Other lines align comments to multiples of 4 columns (minimum 2 spaces)
+  - Creates clean, consistent visual columns for related statements
+  - Tab-stop alignment integrates naturally with 4-space indentation
+
 ## [1.2.4] - 2025-10-19
 
 ### Fixed

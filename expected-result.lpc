@@ -126,47 +126,47 @@ void test_operators() {
     mixed *arr = ({ 1, 2, 3 });
 
     // Arithmetic operators
-    c = a + b;    // Addition
-    c = a - b;    // Subtraction
-    c = a * b;    // Multiplication
-    c = a / b;    // Division
-    c = a % b;    // Modulo
+    c = a + b;  // Addition
+    c = a - b;  // Subtraction
+    c = a * b;  // Multiplication
+    c = a / b;  // Division
+    c = a % b;  // Modulo
 
     // Comparison operators
-    if (a == b) c = 1;    // Equal
-    if (a != b) c = 1;    // Not equal
-    if (a < b) c = 1;    // Less than
-    if (a > b) c = 1;    // Greater than
-    if (a <= b) c = 1;    // Less than or equal
-    if (a >= b) c = 1;    // Greater than or equal
+    if (a == b) c = 1;  // Equal
+    if (a != b) c = 1;  // Not equal
+    if (a < b) c = 1;   // Less than
+    if (a > b) c = 1;   // Greater than
+    if (a <= b) c = 1;  // Less than or equal
+    if (a >= b) c = 1;  // Greater than or equal
 
     // Logical operators
-    if (a && b) c = 1;    // Logical AND
-    if (a || b) c = 1;    // Logical OR
-    if (!a) c = 1;    // Logical NOT
+    if (a && b) c = 1;  // Logical AND
+    if (a || b) c = 1;  // Logical OR
+    if (!a) c = 1;  // Logical NOT
 
     // Bitwise operators
-    c = a & b;    // Bitwise AND
-    c = a | b;    // Bitwise OR
-    c = a ^ b;    // Bitwise XOR
-    c = ~a;    // Bitwise NOT
-    c = a << 2;    // Left shift
-    c = a >> 2;    // Right shift
+    c = a & b;  // Bitwise AND
+    c = a | b;  // Bitwise OR
+    c = a ^ b;  // Bitwise XOR
+    c = ~a;     // Bitwise NOT
+    c = a << 2;     // Left shift
+    c = a >> 2;     // Right shift
     c = a >>> 2;    // Unsigned right shift
 
     // Assignment operators
-    c = a;    // Simple assignment
-    c += b;    // Add and assign
-    c -= b;    // Subtract and assign
-    c *= b;    // Multiply and assign
-    c /= b;    // Divide and assign
-    c %= b;    // Modulo and assign
-    c &= b;    // Bitwise AND and assign
-    c |= b;    // Bitwise OR and assign
-    c ^= b;    // Bitwise XOR and assign
+    c = a;  // Simple assignment
+    c += b;     // Add and assign
+    c -= b;     // Subtract and assign
+    c *= b;     // Multiply and assign
+    c /= b;     // Divide and assign
+    c %= b;     // Modulo and assign
+    c &= b;     // Bitwise AND and assign
+    c |= b;     // Bitwise OR and assign
+    c ^= b;     // Bitwise XOR and assign
     c <<= 2;    // Left shift and assign
     c >>= 2;    // Right shift and assign
-    c >>>= 2;    // Unsigned right shift and assign
+    c >>>= 2;   // Unsigned right shift and assign
 
     // Increment/Decrement
     c++;    // Post-increment
@@ -175,13 +175,13 @@ void test_operators() {
     --c;    // Pre-decrement
 
     // String operators
-    s1 = s2 + " LPC";    // Concatenation
-    s1 = s2[0..4];    // Range extraction
-    c = s1[0];    // Character access
+    s1 = s2 + " LPC";   // Concatenation
+    s1 = s2[0..4];  // Range extraction
+    c = s1[0];  // Character access
 
     // Array operators
-    arr = ({ 1 }) + ({ 2, 3 });    // Array concatenation
-    arr -= ({ 2 });    // Array subtraction
+    arr = ({ 1 }) + ({ 2, 3 });     // Array concatenation
+    arr -= ({ 2 });     // Array subtraction
     arr = arr[0..1];    // Array range
     arr = ({ 1, 2, 3 }) & ({ 2, 3, 4 });    // Array intersection
 
@@ -189,8 +189,8 @@ void test_operators() {
     c = (a > b) ? a : b;    // Conditional
 
     // Range operator
-    s1 = s2[0..5];    // String range
-    arr = arr[1..<2];    // Array range with end offset
+    s1 = s2[0..5];  // String range
+    arr = arr[1..<2];   // Array range with end offset
 
     // Comma operator
     c = (a = 5, b = 10, a + b);
@@ -754,8 +754,8 @@ void test_comments_dont_leak_formatting() {
 void test_special_syntax() {
     // Range operator in array
     int *arr = ({ 1, 2, 3, 4, 5 });
-    int *slice = arr[1..3];    // Elements 1, 2, 3
-    slice = arr[0..<2];    // All except last 2
+    int *slice = arr[1..3];     // Elements 1, 2, 3
+    slice = arr[0..<2];     // All except last 2
     slice = arr[<3..<1];    // Last 3 to last 1
 
     // Range in switch
@@ -792,7 +792,7 @@ void test_comments() {
      * of text
      */
 
-    int x = 5;    // Inline comment
+    int x = 5;  // Inline comment
 
     /* Nested /* comments */ are not standard */
 
@@ -859,7 +859,7 @@ void test_strings_not_formatted() {
     // Strings with closure-like content should NOT be modified
     str = "This is a closure: ({'arg1, 'arg2})";
     str = "Lambda: ({#'function, 'x, 'y})";
-    str = "Array: ({ 1,2,3})";    // Spaces inside string should not be added
+    str = "Array: ({ 1,2,3})";  // Spaces inside string should not be added
     str = "Cast: ({int})value";
 
     // Strings with switch/case should NOT be modified
@@ -877,7 +877,7 @@ void test_strings_not_formatted() {
     str = "value /* inline */ + 1";
 
     // Strings with braces should NOT be modified
-    str = "function()  {  return  x;  }";    // Extra spaces preserved
+    str = "function()  {  return  x;  }";   // Extra spaces preserved
     str = "if(x){y}else{z}";    // No spaces added
 
     // Complex strings with multiple formatters triggers
