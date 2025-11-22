@@ -2,6 +2,22 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.8] - 2025-11-22
+
+### Fixed
+- **Escaped Characters in Strings**: Fixed incorrect indentation caused by brackets/parentheses inside strings
+  - Properly handles escaped quotes by counting preceding backslashes (e.g., `" \\([12]h\\)"`)
+  - String content no longer affects bracket matching or indentation logic
+  - Fixed escape detection in multiple locations:
+    - Bracket stack tracking during formatting
+    - `hasUnclosedBrackets()` function
+    - `countBracesAndStructures()` function
+    - `stripCommentsAndStrings()` function
+    - Comment splitting logic
+  - LPC structure counting (`({`, `})`, etc.) now properly ignores content in strings and comments
+  - Even number of backslashes = quote is NOT escaped
+  - Odd number of backslashes = quote IS escaped
+
 ## [1.2.7] - 2025-10-19
 
 ### Fixed

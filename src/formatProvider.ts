@@ -316,8 +316,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             let inString = false;
             let lineCommentIndex = -1;
             for (let i = 0; i < trimmed.length; i++) {
-                if (trimmed[i] === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
-                    inString = !inString;
+                if (trimmed[i] === '"') {
+                    let backslashCount = 0;
+                    let j = i - 1;
+                    while (j >= 0 && trimmed[j] === '\\') {
+                        backslashCount++;
+                        j--;
+                    }
+                    if (backslashCount % 2 === 0) {
+                        inString = !inString;
+                    }
                 }
                 if (!inString && trimmed[i] === '/' && i + 1 < trimmed.length && trimmed[i + 1] === '/') {
                     lineCommentIndex = i;
@@ -385,8 +393,18 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 const nextChar = col + 1 < formattedLine.length ? formattedLine[col + 1] : '';
                 const prevChar = col > 0 ? formattedLine[col - 1] : '';
                 
-                if (char === '"' && (col === 0 || formattedLine[col - 1] !== '\\')) {
-                    charInString = !charInString;
+                // Properly handle escaped quotes by counting preceding backslashes
+                if (char === '"') {
+                    let backslashCount = 0;
+                    let j = col - 1;
+                    while (j >= 0 && formattedLine[j] === '\\') {
+                        backslashCount++;
+                        j--;
+                    }
+                    // If even number of backslashes (or zero), the quote is not escaped
+                    if (backslashCount % 2 === 0) {
+                        charInString = !charInString;
+                    }
                     continue;
                 }
                 
@@ -762,8 +780,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
             const prevChar = i > 0 ? trimmed[i - 1] : '';
             
-            if (char === '"' && (i === 0 || trimmed[i - 1] !== '\\')) {
-                braceInString = !braceInString;
+            if (char === '"') {
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && trimmed[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                if (backslashCount % 2 === 0) {
+                    braceInString = !braceInString;
+                }
                 continue;
             }
             
@@ -818,11 +844,66 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
         }
         
-        const openingMatches = trimmed.match(/\(\{|\(\[|\(\</g);
-        const closingMatches = trimmed.match(/\}\)|\]\)|\>\)/g);
+        // Count LPC-specific structures like ({ }), ([ ]), (< >)
+        // But only count them if they're NOT inside strings or comments
+        let openingCount = 0;
+        let closingCount = 0;
         
-        const openingCount = openingMatches ? openingMatches.length : 0;
-        const closingCount = closingMatches ? closingMatches.length : 0;
+        let inStr = false;
+        let inLineComm = false;
+        let inBlockComm = false;
+        
+        for (let i = 0; i < trimmed.length - 1; i++) {
+            const char = trimmed[i];
+            const nextChar = trimmed[i + 1];
+            
+            // Track string boundaries
+            if (char === '"') {
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && trimmed[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                if (backslashCount % 2 === 0) {
+                    inStr = !inStr;
+                }
+                continue;
+            }
+            
+            if (inStr) continue;
+            
+            // Track line comments
+            if (!inBlockComm && char === '/' && nextChar === '/') {
+                inLineComm = true;
+            }
+            
+            if (inLineComm) continue;
+            
+            // Track block comments
+            if (char === '/' && nextChar === '*') {
+                inBlockComm = true;
+                i++;
+                continue;
+            }
+            
+            if (inBlockComm && char === '*' && nextChar === '/') {
+                inBlockComm = false;
+                i++;
+                continue;
+            }
+            
+            if (inBlockComm) continue;
+            
+            // Count opening patterns
+            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
+                openingCount++;
+            }
+            // Count closing patterns
+            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
+                closingCount++;
+            }
+        }
         
         return { openBraceCount, closeBraceCount, openingCount, closingCount };
     }
@@ -1077,8 +1158,33 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
     private hasUnclosedBrackets(line: string): boolean {
         let parens = 0, brackets = 0, braces = 0;
+        let inString = false;
         
-        for (const char of line) {
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            // Track string boundaries (handle escaped quotes)
+            if (char === '"') {
+                // Count preceding backslashes
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && line[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                // If even number of backslashes (or zero), the quote is not escaped
+                if (backslashCount % 2 === 0) {
+                    inString = !inString;
+                }
+                continue;
+            }
+            
+            // Skip bracket counting inside strings
+            if (inString) {
+                continue;
+            }
+            
+            // Count brackets only outside strings
             switch (char) {
                 case '(': parens++; break;
                 case ')': parens--; break;
@@ -1103,8 +1209,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const nextChar = i + 1 < line.length ? line[i + 1] : '';
             const prevChar = i > 0 ? line[i - 1] : '';
             
-            if (char === '"' && prevChar !== '\\') {
-                inString = !inString;
+            if (char === '"') {
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && line[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                if (backslashCount % 2 === 0) {
+                    inString = !inString;
+                }
                 result += char;
                 continue;
             }
