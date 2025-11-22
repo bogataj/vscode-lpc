@@ -1263,11 +1263,14 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     }
 
     private isControlStatementWithoutBrace(line: string): boolean {
+        // Strip comments to check the actual code structure
+        const withoutComments = this.stripCommentsAndStrings(line);
+        
         if (line.match(/^\s*(?:if|while|for|foreach)\s*\(/)) {
-            if (line.trimEnd().endsWith(')')) {
+            if (withoutComments.trimEnd().endsWith(')')) {
                 return true;
             }
-            if (this.hasUnclosedBrackets(line)) {
+            if (this.hasUnclosedBrackets(withoutComments)) {
                 return true;
             }
         }
@@ -1276,7 +1279,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return true;
         }
         
-        if (line.match(/^\s*else\s+if\s*\(/) && line.trimEnd().endsWith(')')) {
+        if (line.match(/^\s*else\s+if\s*\(/) && withoutComments.trimEnd().endsWith(')')) {
             return true;
         }
         

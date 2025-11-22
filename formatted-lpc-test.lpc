@@ -1489,3 +1489,22 @@ int preserve_closing() {
         start_quit();
     return 1;
 }
+
+void test_inline_specials() {
+    this_object()->set_class(min(({ changed_class, 45 })));
+    this_object()->set_class(max (({ changed_class, 45 })));
+
+    string s = ::short(arg);
+    s = regreplace(s, " \\([12]h\\)", " <*" + weapon_color + "*>", 0);
+    return s;
+}
+
+private int foreign_arts_check() {
+    if(!wielded_by) return 0;
+
+    if(wielded_by->query_useskill() && member(ACCEPTED_SKILLS, lower_case(wielded_by->query_useskill()->query_skill_name()) == -1))     // Using a skill not in the list
+        return random(100) > 50;
+
+    if(wielded_by->query_castspell() && member(ACCEPTED_SPELLS, lower_case(wielded_by->query_castspell()->query_spell_name()) == -1))   // Using a seill not in the list
+        return random(100) > 50;
+}

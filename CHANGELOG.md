@@ -2,6 +2,14 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.9] - 2025-11-22
+
+### Fixed
+- **Control Statements with Trailing Comments**: Fixed incorrect indentation when control statements have trailing comments
+  - Control statements like `if (...)  // comment` are now properly recognized
+  - Single-statement bodies after control statements with comments are correctly indented
+  - Modified `isControlStatementWithoutBrace()` to strip comments before checking line structure
+
 ## [1.2.8] - 2025-11-22
 
 ### Fixed
