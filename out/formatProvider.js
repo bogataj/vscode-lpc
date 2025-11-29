@@ -871,7 +871,15 @@ class LPCDocumentFormattingEditProvider {
         for (const { index, match } of matches) {
             // Add the part before this match
             result += line.substring(lastIndex, index);
-            if (!this.isInsideString(line, index)) {
+            // Check if ANY character in the match is inside a string
+            let insideString = false;
+            for (let i = 0; i < match[0].length; i++) {
+                if (this.isInsideString(line, index + i)) {
+                    insideString = true;
+                    break;
+                }
+            }
+            if (!insideString) {
                 // Not inside string - apply replacement
                 if (typeof replacement === 'function') {
                     result += replacement(match[0], ...match.slice(1));

@@ -902,6 +902,23 @@ void test_strings_not_formatted() {
     str = "She said: \"Use ({'closure}) here\"";
     str = "Path: \"c:\\test\\({file})\\data\"";
 
+    items = ({
+        "room", "This appears to be a negotiation room of somekind",
+        "furniture", "The furniture is new and most of it is made of wood",
+        "desk", "There is a tidy pile of papers in the desk",
+        "papers", "Papers seem to be forms of somekind",
+        "armchair", "The armchair looks very expensive",
+        "chairs", "One of the chairs doesn't look to as comfortable as the other one",
+        "chair", "=chairs",
+        "bookshelves", break_string("The books in these shelves are used by traders to 'store' "+
+            "information about items that has been written down into their catalogs, making those "+
+            "notes public to everyone. You may use 'list' and 'list <type>' to see what has "+
+            "been stored and then 'lookup <name>' to read about it", 79)[0..<2],
+        "shelves", "=bookshelves",
+        "books", "=bookshelves",
+        "book", "=bookshelves"
+    });
+
     // Continue this string on the next line
     str = "\
 Creator: " + channels[channel, CREATOR] + "\n\

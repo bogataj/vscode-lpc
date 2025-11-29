@@ -2,6 +2,14 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.10] - 2025-11-29
+
+### Fixed
+- **String Content Modification**: Fixed formatter incorrectly adding spaces around operators inside strings
+  - Strings like `"=chairs"` were being changed to `" = chairs"`
+  - Modified `replaceOutsideStrings()` to check if ANY character in the match is inside a string
+  - Now properly preserves all content within string literals
+
 ## [1.2.9] - 2025-11-22
 
 ### Fixed
