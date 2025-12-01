@@ -7,7 +7,13 @@
       "include": "#comments"
     },
     {
+      "include": "#inherited_calls"
+    },
+    {
       "include": "#strings"
+    },
+    {
+      "include": "#characters"
     },
     {
       "include": "#function_definitions"
@@ -47,6 +53,14 @@
     }
   ],
   "repository": {
+    "inherited_calls": {
+      "patterns": [
+        {
+          "match": "::",
+          "name": "punctuation.separator.scope-resolution.lpc"
+        }
+      ]
+    },
     "comments": {
       "patterns": [
         {
@@ -107,12 +121,19 @@
         }
       ]
     },
+    "characters": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.lpc",
+          "match": "'([^'\\\\]|\\\\.)'"        }
+      ]
+    },
     "lpc_closures": {
       "patterns": [
         {
           "name": "meta.lambda.lpc",
           "begin": "\\(:",
-          "end": ":\\)",
+          "end": "(?<!:):\\)",
           "beginCaptures": {
             "0": {
               "name": "punctuation.definition.lambda.begin.lpc"
@@ -129,7 +150,7 @@
               "match": "\\$[0-9]+"
             },
             {
-              "include": "#expressions"
+              "include": "$self"
             }
           ]
         },
@@ -280,12 +301,24 @@
           "match": "\\b[A-Z][A-Z0-9_]{2,}(?![A-Za-z0-9_])"
         },
         {
-          "name": "constant.numeric.lpc",
-          "match": "\\b(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)\\b"
+          "name": "constant.numeric.hex.lpc",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.lpc",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.lpc",
+          "match": "\\b0[0-7]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.lpc",
+          "match": "\\b[1-9][0-9]*\\b"
         },
         {
           "name": "constant.numeric.float.lpc",
-          "match": "\\b([0-9]*\\.[0-9]+([eE][+-]?[0-9]+)?[fF]?|[0-9]+[eE][+-]?[0-9]+[fF]?|[0-9]+[fF])\\b"
+          "match": "\\b([0-9]+\\.[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?[fF]?\\b|\\b[0-9]+[eE][+-]?[0-9]+[fF]?\\b|\\b[0-9]+[fF]\\b"
         }
       ]
     },
@@ -324,7 +357,7 @@
         },
         {
           "name": "keyword.operator.ternary.lpc",
-          "match": "\\?|:"
+          "match": "\\?|(?<!:):(?!:)"
         }
       ]
     },

@@ -37,6 +37,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     }
 
     private formatLPCCode(code: string, options: vscode.FormattingOptions): string {
+        const indentString = options.insertSpaces 
+            ? ' '.repeat(options.tabSize) 
+            : '\t';
+        
         let lines = this.preprocessLines(code.split(/\r?\n/));
         
         let result: string[] = [];
@@ -51,6 +55,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let previousLineHadUnclosedBrackets = false;
         let inMultiLineControlStatement = false;
         let stringContinuationColumn = -1;
+        let customSpacing: string | null = null;
         let lpcStructureIndentStack: number[] = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
@@ -80,7 +85,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     inBlockComment,
                     blockCommentIndent,
                     preprocessorIndentStack
-                }
+                },
+                indentString
             );
             
             if (specialLineResult.handled) {
@@ -201,8 +207,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (previousLineWasFunctionCall && previousLineNeedsContinuation) {
-                currentIndent = previousCurrentIndent + 1;
+            else if (previousLineNeedsContinuation && bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(') {
+                // Use continuation indent for function arguments (base indent + 1)
+                const parenMatch = bracketStack[bracketStack.length - 1];
+                currentIndent = parenMatch.assignedIndent + 1;
                 lastLineWasCaseLabel = false;
             }
             else if (trimmed.match(/^(\&\&|\|\|)/) && lpcDataStructureDepth === 0) {
@@ -263,7 +271,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     if (matchingParen.char === '(') {
                         const matchingLine = lines[matchingParen.lineIndex];
                         const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                        const baseIndent = Math.floor(leadingSpaces / 4);
+                        const baseIndent = Math.floor(leadingSpaces / indentString.length);
                         const bracketIndent = baseIndent + 1;
                         currentIndent = Math.max(currentIndent, bracketIndent);
                     }
@@ -276,7 +284,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 if (matchingParen.char === '(') {
                     const matchingLine = lines[matchingParen.lineIndex];
                     const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                    const baseIndent = Math.floor(leadingSpaces / 4);
+                    const baseIndent = Math.floor(leadingSpaces / indentString.length);
                     currentIndent = baseIndent + 1;
                 } else {
                     currentIndent = indentLevel;
@@ -301,8 +309,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 expectSingleStatementIndent = false;
                 inMultiLineControlStatement = false;
             }
-
-            let spaces = '    '.repeat(currentIndent);
+            
+            let spaces = customSpacing !== null ? customSpacing : indentString.repeat(currentIndent);
+            customSpacing = null;  // Reset for next line
             
             if (stringContinuationColumn >= 0) {
                 spaces = ' '.repeat(stringContinuationColumn);
@@ -440,15 +449,26 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                         continue;
                     }
                     
-                    col++;
+                    // For closure arrays ({, push the ( to track nesting depth
+                    bracketStack.push({ char: '(', column: col, lineIndex: i, assignedIndent: currentIndent });
+                    col++;  // Skip the {
                     continue;
                 }
                 
                 if ((char === '}' || char === ']' || char === '>') && (nextChar === ')')) {
+                    // For }) closure array close, pop the matching ( that was pushed
+                    if (char === '}' && nextChar === ')' && bracketStack.length > 0) {
+                        const last = bracketStack[bracketStack.length - 1];
+                        if (last.char === '(') {
+                            bracketStack.pop();
+                        }
+                    }
+                    col++;  // Skip the )
                     continue;
                 }
                 
                 if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
+                    // Already handled above
                     continue;
                 }
                 
@@ -475,13 +495,6 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 lpcStructureIndentStack.length = 0;
             }
 
-            previousCurrentIndent = currentIndent;
-            previousLineNeedsContinuation = this.needsContinuation(trimmed, lpcDataStructureDepth > 0);
-            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
-            
-            previousLineWasFunctionCall = (trimmed.endsWith('(') || (this.hasUnclosedBrackets(trimmed) && !!trimmed.match(/\w+\s*\(/))) 
-                && !trimmed.match(/[{\[<]\s*\(\s*$/);
-            
             const trimmedWithoutComments = this.stripCommentsAndStrings(trimmed);
             if (!trimmedWithoutComments.endsWith('{') && this.isControlStatementWithoutBrace(trimmed)) {
                 expectSingleStatementIndent = true;
@@ -490,7 +503,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
 
-            const { openBraceCount, closeBraceCount, openingCount, closingCount } = 
+            const { openBraceCount, closeBraceCount, openingCount, closingCount} = 
                 this.countBracesAndStructures(trimmed, leadingCloseBraceHandled);
             const netLPCChange = openingCount - closingCount;
             
@@ -509,6 +522,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             if (closingCount > 0) {
                 lpcDataStructureDepth = Math.max(0, lpcDataStructureDepth - closingCount);
             }
+
+            // Update previous line state AFTER updating lpcDataStructureDepth
+            previousCurrentIndent = currentIndent;
+            previousLineNeedsContinuation = this.needsContinuation(trimmed, lpcDataStructureDepth > 0);
+            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
+            
+            previousLineWasFunctionCall = (trimmed.endsWith('(') || (this.hasUnclosedBrackets(trimmed) && !!trimmed.match(/\w+\s*\(/))) 
+                && !trimmed.match(/[{\[<]\s*\(\s*$/);
+
             
             if (netLPCChange > 0) {
                 const elementIndent = currentIndent + 1;
@@ -582,7 +604,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             inBlockComment: boolean;
             blockCommentIndent: number;
             preprocessorIndentStack: number[];
-        }
+        },
+        indentString: string = '    '
     ): {
         handled: boolean;
         output?: string | string[];
@@ -597,7 +620,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const startPos = trimmed.indexOf('/*');
             const endPos = trimmed.indexOf('*/', startPos);
             if (endPos === -1) {
-                const spaces = '    '.repeat(indentLevel);
+                const spaces = indentString.repeat(indentLevel);
                 const afterComment = trimmed.substring(startPos + 2).trim();
                 
                 if (afterComment.length > 0) {
@@ -619,7 +642,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         if (state.inBlockComment) {
-            const spaces = '    '.repeat(state.blockCommentIndent);
+            const spaces = indentString.repeat(state.blockCommentIndent);
             let formattedComment = trimmed;
             
             if (trimmed.startsWith('*') && !trimmed.startsWith('*/')) {
@@ -644,7 +667,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         if (trimmed.startsWith('//')) {
-            const spaces = '    '.repeat(indentLevel);
+            const spaces = indentString.repeat(indentLevel);
             return {
                 handled: true,
                 output: spaces + trimmed,
@@ -1158,8 +1181,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return true;
         }
         
-        if (trimmedLine.endsWith(',') && !insideLPCStructure) {
-            return true;
+        // For comma: check if it's outside local structures on this line
+        // E.g., "({...})," has balanced structures, comma is outside, needs continuation
+        // But "({..." has unclosed structure, already handled above
+        if (trimmedLine.endsWith(',')) {
+            // Check if all structures on this line are balanced
+            if (!this.hasUnclosedBrackets(trimmedLine)) {
+                return true;  // Comma outside structures
+            }
+            // If unclosed brackets, we already returned true above
         }
         
         return false;

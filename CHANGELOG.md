@@ -2,6 +2,38 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.2.11] - 2025-12-02
+
+### Fixed
+- **Formatter Respects User Indent Settings**: Formatter now correctly uses configured tab/space settings
+  - Uses `options.insertSpaces` and `options.tabSize` from VS Code formatting options
+  - Previously hardcoded to 4 spaces, now respects user's editor configuration
+  - Consistent indentation throughout formatted code
+
+- **Function Argument Continuation Indent**: Improved multi-line function call formatting
+  - Function arguments now use continuation indent (base indent + 1) following K&R standard
+  - Changed from cascading indent to stable indent based on opening parenthesis
+  - Aligns with LDMUD test code formatting conventions
+
+- **Closure Array Comma Detection**: Fixed continuation detection for closure arrays
+  - Commas outside balanced structures (e.g., `({...}),`) now properly trigger continuation
+  - Smart detection distinguishes between commas inside vs outside local structures
+  - Prevents false positives from unclosed brackets
+
+- **LPC Data Structure Depth Tracking**: Fixed state update ordering
+  - `lpcDataStructureDepth` now updated before continuation detection
+  - Ensures accurate context for comma continuation decisions
+  - Prevents incorrect indentation in nested closures
+
+### Improved
+- **Syntax Highlighting Enhancements**: Better recognition of LPC language features
+  - Added scope resolution operator `::` for inherited calls
+  - Added character literal support `'x'` with escape sequences
+  - Improved lambda/closure pattern matching with negative lookahead for `:)`
+  - Better numeric constant categorization (hex, binary, octal, decimal, float)
+  - Fixed ternary operator `:` to avoid conflicts with lambda syntax
+  - Nested patterns in lambdas now use `$self` for recursive matching
+
 ## [1.2.10] - 2025-11-29
 
 ### Fixed
