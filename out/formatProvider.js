@@ -35,15 +35,97 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LPCDocumentFormattingEditProvider = void 0;
 const vscode = __importStar(require("vscode"));
+class CharacterScanner {
+    constructor() {
+        this.inString = false;
+        this.inLineComment = false;
+        this.inBlockComment = false;
+    }
+    /** Process one character, updating state. */
+    processChar(line, index) {
+        const char = line[index];
+        const nextChar = index + 1 < line.length ? line[index + 1] : '';
+        // Handle string toggle (double quotes only, with backslash-escape counting)
+        if (char === '"' && !this.inLineComment && !this.inBlockComment) {
+            let backslashCount = 0;
+            let j = index - 1;
+            while (j >= 0 && line[j] === '\\') {
+                backslashCount++;
+                j--;
+            }
+            if (backslashCount % 2 === 0) {
+                this.inString = !this.inString;
+            }
+            return { skip: true, skipNext: false };
+        }
+        if (this.inString) {
+            return { skip: true, skipNext: false };
+        }
+        // Line comment start
+        if (!this.inBlockComment && char === '/' && nextChar === '/') {
+            this.inLineComment = true;
+            return { skip: true, skipNext: false };
+        }
+        if (this.inLineComment) {
+            return { skip: true, skipNext: false };
+        }
+        // Block comment start
+        if (char === '/' && nextChar === '*') {
+            this.inBlockComment = true;
+            return { skip: true, skipNext: true };
+        }
+        // Block comment end
+        if (this.inBlockComment && char === '*' && nextChar === '/') {
+            this.inBlockComment = false;
+            return { skip: true, skipNext: true };
+        }
+        if (this.inBlockComment) {
+            return { skip: true, skipNext: false };
+        }
+        return { skip: false, skipNext: false };
+    }
+    resetForNewLine() {
+        this.inLineComment = false;
+    }
+    reset() {
+        this.inString = false;
+        this.inLineComment = false;
+        this.inBlockComment = false;
+    }
+}
 class LPCDocumentFormattingEditProvider {
     provideDocumentFormattingEdits(document, options, token) {
-        const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
-        return this.provideDocumentRangeFormattingEdits(document, fullRange, options, token);
+        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        if (!config.get('enabled', true)) {
+            return [];
+        }
+        try {
+            const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
+            const text = document.getText(fullRange);
+            const indentSize = config.get('indentSize', options.tabSize);
+            let formattedText = this.formatLPCCode(text, options, indentSize, token);
+            if (config.get('insertFinalNewline', true) && !formattedText.endsWith('\n')) {
+                formattedText += '\n';
+            }
+            if (formattedText === text) {
+                return [];
+            }
+            return [vscode.TextEdit.replace(fullRange, formattedText)];
+        }
+        catch (error) {
+            console.error('LPC Formatting Error:', error);
+            return [];
+        }
     }
     provideDocumentRangeFormattingEdits(document, range, options, token) {
+        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        if (!config.get('enabled', true)) {
+            return [];
+        }
         try {
             const text = document.getText(range);
-            const formattedText = this.formatLPCCode(text, options);
+            const indentSize = config.get('indentSize', options.tabSize);
+            const formattedText = this.formatLPCCode(text, options, indentSize, token);
             if (formattedText === text) {
                 return [];
             }
@@ -54,7 +136,10 @@ class LPCDocumentFormattingEditProvider {
             return [];
         }
     }
-    formatLPCCode(code, options) {
+    formatLPCCode(code, options, indentSize, token) {
+        const indentString = options.insertSpaces
+            ? ' '.repeat(indentSize)
+            : '\t';
         let lines = this.preprocessLines(code.split(/\r?\n/));
         let result = [];
         let indentLevel = 0;
@@ -63,11 +148,11 @@ class LPCDocumentFormattingEditProvider {
         let lastLineWasCaseLabel = false;
         let inCaseBody = false;
         let previousLineNeedsContinuation = false;
-        let previousLineWasFunctionCall = false;
         let previousCurrentIndent = 0;
         let previousLineHadUnclosedBrackets = false;
         let inMultiLineControlStatement = false;
         let stringContinuationColumn = -1;
+        let customSpacing = null;
         let lpcStructureIndentStack = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
@@ -75,9 +160,11 @@ class LPCDocumentFormattingEditProvider {
         let lpcDataStructureDepth = 0;
         const bracketStack = [];
         let preprocessorIndentStack = [];
-        let lastLineWasPreprocessor = false;
         let inBackslashStringContinuation = false;
         for (let i = 0; i < lines.length; i++) {
+            if (token?.isCancellationRequested) {
+                return code;
+            }
             const line = lines[i];
             const trimmed = line.trim();
             // Handle backslash string continuation - preserve original line as-is
@@ -91,7 +178,7 @@ class LPCDocumentFormattingEditProvider {
                 inBlockComment,
                 blockCommentIndent,
                 preprocessorIndentStack
-            });
+            }, indentString);
             if (specialLineResult.handled) {
                 if (specialLineResult.output !== undefined) {
                     if (Array.isArray(specialLineResult.output)) {
@@ -117,16 +204,13 @@ class LPCDocumentFormattingEditProvider {
                 }
                 if (specialLineResult.clearBracketStack) {
                     bracketStack.length = 0;
-                }
-                if (specialLineResult.wasPreprocessor) {
-                    lastLineWasPreprocessor = true;
+                    lpcStructureIndentStack.length = 0;
                 }
                 continue;
             }
-            lastLineWasPreprocessor = false;
             let currentIndent = indentLevel;
             let leadingCloseBraceHandled = false;
-            if (trimmed.startsWith('}') && !trimmed.match(/^}\s*[\)\]\>]/)) {
+            if (trimmed.startsWith('}') && !trimmed.match(/^}\s*[)\]>]/)) {
                 indentLevel = Math.max(0, indentLevel - 1);
                 currentIndent = indentLevel;
                 leadingCloseBraceHandled = true;
@@ -137,7 +221,7 @@ class LPCDocumentFormattingEditProvider {
                     inCaseBody = false;
                 }
             }
-            if (trimmed.match(/^[\}\]\>]\s*\)/) && lpcStructureIndentStack.length > 0) {
+            if (trimmed.match(/^[}\]>]\s*\)/) && lpcStructureIndentStack.length > 0) {
                 if (lpcStructureIndentStack.length > 0) {
                     currentIndent = Math.max(0, lpcStructureIndentStack[lpcStructureIndentStack.length - 1] - 1);
                 }
@@ -203,11 +287,13 @@ class LPCDocumentFormattingEditProvider {
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (previousLineWasFunctionCall && previousLineNeedsContinuation) {
-                currentIndent = previousCurrentIndent + 1;
+            else if (previousLineNeedsContinuation && bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(' && !trimmed.match(/^[)}\]>]/)) {
+                // Use continuation indent for function arguments (base indent + 1)
+                const parenMatch = bracketStack[bracketStack.length - 1];
+                currentIndent = parenMatch.assignedIndent + 1;
                 lastLineWasCaseLabel = false;
             }
-            else if (trimmed.match(/^(\&\&|\|\|)/) && lpcDataStructureDepth === 0) {
+            else if (trimmed.match(/^(&&|\|\|)/) && lpcDataStructureDepth === 0) {
                 currentIndent = Math.max(indentLevel + 1, previousCurrentIndent);
                 lastLineWasCaseLabel = false;
             }
@@ -257,34 +343,21 @@ class LPCDocumentFormattingEditProvider {
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (lpcStructureIndentStack.length > 0 && !trimmed.match(/^[\}\]\>]\s*\)/) && trimmed !== ')') {
+            else if (lpcStructureIndentStack.length > 0 && !trimmed.match(/^[}\]>]\s*\)/) && trimmed !== ')') {
                 currentIndent = lpcStructureIndentStack[lpcStructureIndentStack.length - 1];
-                if (bracketStack.length > 0 && !trimmed.match(/^[\)\}\]\>]/)) {
-                    const matchingParen = bracketStack[bracketStack.length - 1];
-                    if (matchingParen.char === '(') {
-                        const matchingLine = lines[matchingParen.lineIndex];
-                        const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                        const baseIndent = Math.floor(leadingSpaces / 4);
-                        const bracketIndent = baseIndent + 1;
-                        currentIndent = Math.max(currentIndent, bracketIndent);
-                    }
-                }
                 lastLineWasCaseLabel = false;
             }
-            else if (bracketStack.length > 0 && !trimmed.match(/^[\)\}\]\>]/)) {
+            else if (bracketStack.length > 0 && !trimmed.match(/^[)}\]>]/)) {
                 const matchingParen = bracketStack[bracketStack.length - 1];
                 if (matchingParen.char === '(') {
-                    const matchingLine = lines[matchingParen.lineIndex];
-                    const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                    const baseIndent = Math.floor(leadingSpaces / 4);
-                    currentIndent = baseIndent + 1;
+                    currentIndent = matchingParen.assignedIndent + 1;
                 }
                 else {
                     currentIndent = indentLevel;
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (trimmed.match(/^(\&\&|\|\|)/)) {
+            else if (trimmed.match(/^(&&|\|\|)/)) {
                 currentIndent = indentLevel + 1;
                 lastLineWasCaseLabel = false;
             }
@@ -299,7 +372,8 @@ class LPCDocumentFormattingEditProvider {
                 expectSingleStatementIndent = false;
                 inMultiLineControlStatement = false;
             }
-            let spaces = '    '.repeat(currentIndent);
+            let spaces = customSpacing !== null ? customSpacing : indentString.repeat(currentIndent);
+            customSpacing = null; // Reset for next line
             if (stringContinuationColumn >= 0) {
                 spaces = ' '.repeat(stringContinuationColumn);
                 if (!trimmed.endsWith('+')) {
@@ -370,46 +444,16 @@ class LPCDocumentFormattingEditProvider {
             if (this.endsWithBackslashInString(trimmed)) {
                 inBackslashStringContinuation = true;
             }
-            let charInString = false;
-            let charInLineComment = false;
-            let charInBlockComment = false;
+            const lineScanner = new CharacterScanner();
             for (let col = 0; col < formattedLine.length; col++) {
+                const { skip, skipNext } = lineScanner.processChar(formattedLine, col);
+                if (skipNext)
+                    col++;
+                if (skip)
+                    continue;
                 const char = formattedLine[col];
                 const nextChar = col + 1 < formattedLine.length ? formattedLine[col + 1] : '';
                 const prevChar = col > 0 ? formattedLine[col - 1] : '';
-                // Properly handle escaped quotes by counting preceding backslashes
-                if (char === '"') {
-                    let backslashCount = 0;
-                    let j = col - 1;
-                    while (j >= 0 && formattedLine[j] === '\\') {
-                        backslashCount++;
-                        j--;
-                    }
-                    // If even number of backslashes (or zero), the quote is not escaped
-                    if (backslashCount % 2 === 0) {
-                        charInString = !charInString;
-                    }
-                    continue;
-                }
-                if (charInString)
-                    continue;
-                if (!charInBlockComment && char === '/' && nextChar === '/') {
-                    charInLineComment = true;
-                }
-                if (charInLineComment)
-                    continue;
-                if (char === '/' && nextChar === '*') {
-                    charInBlockComment = true;
-                    col++;
-                    continue;
-                }
-                if (charInBlockComment && char === '*' && nextChar === '/') {
-                    charInBlockComment = false;
-                    col++;
-                    continue;
-                }
-                if (charInBlockComment)
-                    continue;
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
                     const restOfLine = formattedLine.substring(col + 2);
                     const isCast = restOfLine.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s*\)/);
@@ -418,13 +462,24 @@ class LPCDocumentFormattingEditProvider {
                         col++;
                         continue;
                     }
-                    col++;
+                    // For closure arrays ({, push the ( to track nesting depth
+                    bracketStack.push({ char: '(', column: col, lineIndex: i, assignedIndent: currentIndent });
+                    col++; // Skip the {
                     continue;
                 }
                 if ((char === '}' || char === ']' || char === '>') && (nextChar === ')')) {
+                    // For }), ]), >) LPC structure closers, pop the matching ( that was pushed
+                    if (bracketStack.length > 0) {
+                        const last = bracketStack[bracketStack.length - 1];
+                        if (last.char === '(') {
+                            bracketStack.pop();
+                        }
+                    }
+                    col++; // Skip the )
                     continue;
                 }
                 if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
+                    // Already handled above
                     continue;
                 }
                 if (char === '[' && col >= 2 && formattedLine[col - 1] === '\'' && formattedLine[col - 2] === '#') {
@@ -444,15 +499,15 @@ class LPCDocumentFormattingEditProvider {
                     }
                 }
             }
+            // Propagate block comment state when /* is opened mid-line without closing
+            if (lineScanner.inBlockComment) {
+                inBlockComment = true;
+                blockCommentIndent = currentIndent;
+            }
             if (trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/)) {
                 bracketStack.length = 0;
                 lpcStructureIndentStack.length = 0;
             }
-            previousCurrentIndent = currentIndent;
-            previousLineNeedsContinuation = this.needsContinuation(trimmed, lpcDataStructureDepth > 0);
-            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
-            previousLineWasFunctionCall = (trimmed.endsWith('(') || (this.hasUnclosedBrackets(trimmed) && !!trimmed.match(/\w+\s*\(/)))
-                && !trimmed.match(/[{\[<]\s*\(\s*$/);
             const trimmedWithoutComments = this.stripCommentsAndStrings(trimmed);
             if (!trimmedWithoutComments.endsWith('{') && this.isControlStatementWithoutBrace(trimmed)) {
                 expectSingleStatementIndent = true;
@@ -475,6 +530,10 @@ class LPCDocumentFormattingEditProvider {
             if (closingCount > 0) {
                 lpcDataStructureDepth = Math.max(0, lpcDataStructureDepth - closingCount);
             }
+            // Update previous line state AFTER updating lpcDataStructureDepth
+            previousCurrentIndent = currentIndent;
+            previousLineNeedsContinuation = this.needsContinuation(trimmed);
+            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
             if (netLPCChange > 0) {
                 const elementIndent = currentIndent + 1;
                 for (let i = 0; i < netLPCChange; i++) {
@@ -504,13 +563,9 @@ class LPCDocumentFormattingEditProvider {
                 continue;
             }
             let codeOnly = trimmed;
-            const lineCommentPos = trimmed.indexOf('//');
-            if (lineCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, lineCommentPos).trim();
-            }
-            const blockCommentPos = trimmed.indexOf('/*');
-            if (blockCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, blockCommentPos).trim();
+            const commentPos = this.findFirstCommentOutsideStrings(trimmed);
+            if (commentPos >= 0) {
+                codeOnly = trimmed.substring(0, commentPos).trim();
             }
             const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
             const isOneLinerControl = (codeOnly.match(/^(if|while|for|foreach)\s*\(/) || codeOnly.match(/^else\s*(if\s*\(|{)/)) && codeOnly.includes('{') && codeOnly.includes('}');
@@ -532,12 +587,21 @@ class LPCDocumentFormattingEditProvider {
         }
         return preprocessedLines;
     }
-    handleSpecialLine(trimmed, indentLevel, state) {
+    handleSpecialLine(trimmed, indentLevel, state, indentString = '    ') {
         if (!state.inBlockComment && trimmed.includes('/*')) {
             const startPos = trimmed.indexOf('/*');
-            const endPos = trimmed.indexOf('*/', startPos);
+            // Don't treat /* inside strings as block comments
+            if (this.isInsideString(trimmed, startPos)) {
+                return { handled: false };
+            }
+            // If there's code before /*, let the normal formatter handle the line;
+            // the main loop will detect the unclosed block comment via character tracking
+            if (startPos > 0) {
+                return { handled: false };
+            }
+            const endPos = trimmed.indexOf('*/', startPos + 2);
             if (endPos === -1) {
-                const spaces = '    '.repeat(indentLevel);
+                const spaces = indentString.repeat(indentLevel);
                 const afterComment = trimmed.substring(startPos + 2).trim();
                 if (afterComment.length > 0) {
                     return {
@@ -558,7 +622,7 @@ class LPCDocumentFormattingEditProvider {
             }
         }
         if (state.inBlockComment) {
-            const spaces = '    '.repeat(state.blockCommentIndent);
+            const spaces = indentString.repeat(state.blockCommentIndent);
             let formattedComment = trimmed;
             if (trimmed.startsWith('*') && !trimmed.startsWith('*/')) {
                 formattedComment = ' * ';
@@ -582,7 +646,7 @@ class LPCDocumentFormattingEditProvider {
             };
         }
         if (trimmed.startsWith('//')) {
-            const spaces = '    '.repeat(indentLevel);
+            const spaces = indentString.repeat(indentLevel);
             return {
                 handled: true,
                 output: spaces + trimmed,
@@ -616,8 +680,7 @@ class LPCDocumentFormattingEditProvider {
                 handled: true,
                 output: trimmed,
                 updateIndentLevel: newIndentLevel,
-                resetFlags: true,
-                wasPreprocessor: true
+                resetFlags: true
             };
         }
         return { handled: false };
@@ -645,7 +708,7 @@ class LPCDocumentFormattingEditProvider {
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
-        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])-([a-zA-Z0-9_"({])/g, '$1 - $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
         normalized = this.replaceOutsideStrings(normalized, /,([a-zA-Z0-9_"'({])/g, ', $1');
@@ -679,123 +742,45 @@ class LPCDocumentFormattingEditProvider {
     countBracesAndStructures(trimmed, leadingCloseBraceHandled) {
         let openBraceCount = 0;
         let closeBraceCount = 0;
-        let braceInString = false;
-        let braceInLineComment = false;
-        let braceInBlockComment = false;
+        let openingCount = 0;
+        let closingCount = 0;
+        const scanner = new CharacterScanner();
         for (let i = 0; i < trimmed.length; i++) {
+            const { skip, skipNext } = scanner.processChar(trimmed, i);
+            if (skipNext)
+                i++;
+            if (skip)
+                continue;
             const char = trimmed[i];
             const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
             const prevChar = i > 0 ? trimmed[i - 1] : '';
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && trimmed[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    braceInString = !braceInString;
-                }
-                continue;
-            }
-            if (braceInString) {
-                continue;
-            }
-            if (!braceInBlockComment && char === '/' && nextChar === '/') {
-                braceInLineComment = true;
-            }
-            if (braceInLineComment) {
-                continue;
-            }
-            if (char === '/' && nextChar === '*') {
-                braceInBlockComment = true;
-                i++;
-                continue;
-            }
-            if (braceInBlockComment && char === '*' && nextChar === '/') {
-                braceInBlockComment = false;
-                i++;
-                continue;
-            }
-            if (braceInBlockComment) {
-                continue;
-            }
+            // LPC structure openers: ({, ([, (<
             if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                i++;
+                openingCount++;
+                i++; // Skip the {/[/<
                 continue;
             }
-            else if (char === '{') {
+            // LPC structure closers: }), ]), >)
+            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
+                closingCount++;
+                i++; // Skip the )
+                continue;
+            }
+            // Skip ) that was part of a structure closer already handled
+            if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
+                continue;
+            }
+            // Regular braces
+            if (char === '{') {
                 if (prevChar !== '(' && prevChar !== '[' && prevChar !== '<') {
                     openBraceCount++;
                 }
             }
-            else if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
-                continue;
-            }
-            else if (char === '}' || char === ']' || char === '>') {
-                if (nextChar === ')') {
-                    i++;
+            else if (char === '}') {
+                if (i === 0 && leadingCloseBraceHandled) {
                     continue;
                 }
-                if (char === '}') {
-                    if (i === 0 && leadingCloseBraceHandled) {
-                        continue;
-                    }
-                    closeBraceCount++;
-                }
-            }
-        }
-        // Count LPC-specific structures like ({ }), ([ ]), (< >)
-        // But only count them if they're NOT inside strings or comments
-        let openingCount = 0;
-        let closingCount = 0;
-        let inStr = false;
-        let inLineComm = false;
-        let inBlockComm = false;
-        for (let i = 0; i < trimmed.length - 1; i++) {
-            const char = trimmed[i];
-            const nextChar = trimmed[i + 1];
-            // Track string boundaries
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && trimmed[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    inStr = !inStr;
-                }
-                continue;
-            }
-            if (inStr)
-                continue;
-            // Track line comments
-            if (!inBlockComm && char === '/' && nextChar === '/') {
-                inLineComm = true;
-            }
-            if (inLineComm)
-                continue;
-            // Track block comments
-            if (char === '/' && nextChar === '*') {
-                inBlockComm = true;
-                i++;
-                continue;
-            }
-            if (inBlockComm && char === '*' && nextChar === '/') {
-                inBlockComm = false;
-                i++;
-                continue;
-            }
-            if (inBlockComm)
-                continue;
-            // Count opening patterns
-            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                openingCount++;
-            }
-            // Count closing patterns
-            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
-                closingCount++;
+                closeBraceCount++;
             }
         }
         return { openBraceCount, closeBraceCount, openingCount, closingCount };
@@ -824,6 +809,30 @@ class LPCDocumentFormattingEditProvider {
             }
         }
         return inString;
+    }
+    findFirstCommentOutsideStrings(line) {
+        let inString = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && line[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                if (backslashCount % 2 === 0) {
+                    inString = !inString;
+                }
+                continue;
+            }
+            if (inString)
+                continue;
+            if (char === '/' && i + 1 < line.length && (line[i + 1] === '/' || line[i + 1] === '*')) {
+                return i;
+            }
+        }
+        return -1;
     }
     endsWithBackslashInString(line) {
         // Check if the line ends with a backslash and we're inside a string
@@ -858,29 +867,55 @@ class LPCDocumentFormattingEditProvider {
         }
         return false;
     }
+    computeStringMask(line) {
+        const mask = new Array(line.length);
+        let inString = false;
+        let stringChar = '';
+        let escaped = false;
+        for (let i = 0; i < line.length; i++) {
+            mask[i] = inString;
+            const char = line[i];
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (char === '\\') {
+                escaped = true;
+                continue;
+            }
+            if ((char === '"' || char === "'") && !inString) {
+                inString = true;
+                stringChar = char;
+            }
+            else if (char === stringChar && inString) {
+                inString = false;
+                stringChar = '';
+            }
+        }
+        return mask;
+    }
     replaceOutsideStrings(line, pattern, replacement) {
         let result = '';
         let lastIndex = 0;
-        // Find all matches
         const matches = [];
         let match;
         while ((match = pattern.exec(line)) !== null) {
             matches.push({ index: match.index, match });
         }
-        // Apply replacements only if not inside strings
+        if (matches.length === 0) {
+            return line;
+        }
+        const mask = this.computeStringMask(line);
         for (const { index, match } of matches) {
-            // Add the part before this match
             result += line.substring(lastIndex, index);
-            // Check if ANY character in the match is inside a string
             let insideString = false;
             for (let i = 0; i < match[0].length; i++) {
-                if (this.isInsideString(line, index + i)) {
+                if (mask[index + i]) {
                     insideString = true;
                     break;
                 }
             }
             if (!insideString) {
-                // Not inside string - apply replacement
                 if (typeof replacement === 'function') {
                     result += replacement(match[0], ...match.slice(1));
                 }
@@ -889,12 +924,10 @@ class LPCDocumentFormattingEditProvider {
                 }
             }
             else {
-                // Inside string - keep original
                 result += match[0];
             }
             lastIndex = index + match[0].length;
         }
-        // Add the remaining part
         result += line.substring(lastIndex);
         return result || line;
     }
@@ -992,7 +1025,7 @@ class LPCDocumentFormattingEditProvider {
         }
         return processed;
     }
-    needsContinuation(line, insideLPCStructure = false) {
+    needsContinuation(line) {
         const withoutComment = line.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//, '');
         const trimmedLine = withoutComment.trimEnd();
         if (trimmedLine.endsWith('{')) {
@@ -1004,14 +1037,21 @@ class LPCDocumentFormattingEditProvider {
         if (this.hasUnclosedBrackets(trimmedLine)) {
             return true;
         }
-        if (trimmedLine.match(/(\|\||\&\&)\s*$/)) {
+        if (trimmedLine.match(/(\|\||&&)\s*$/)) {
             return true;
         }
         if (trimmedLine.match(/[+\-*/%]\s*$/) && !trimmedLine.match(/^\s*(case\s+|default\s*:)/)) {
             return true;
         }
-        if (trimmedLine.endsWith(',') && !insideLPCStructure) {
-            return true;
+        // For comma: check if it's outside local structures on this line
+        // E.g., "({...})," has balanced structures, comma is outside, needs continuation
+        // But "({..." has unclosed structure, already handled above
+        if (trimmedLine.endsWith(',')) {
+            // Check if all structures on this line are balanced
+            if (!this.hasUnclosedBrackets(trimmedLine)) {
+                return true; // Comma outside structures
+            }
+            // If unclosed brackets, we already returned true above
         }
         return false;
     }
@@ -1037,6 +1077,10 @@ class LPCDocumentFormattingEditProvider {
             }
             // Skip bracket counting inside strings
             if (inString) {
+                continue;
+            }
+            // Skip LPC function references like #'[ - the [ is not an actual bracket
+            if (char === '[' && i >= 2 && line[i - 1] === '\'' && line[i - 2] === '#') {
                 continue;
             }
             // Count brackets only outside strings
@@ -1065,54 +1109,19 @@ class LPCDocumentFormattingEditProvider {
     }
     stripCommentsAndStrings(line) {
         let result = '';
-        let inString = false;
-        let inLineComment = false;
-        let inBlockComment = false;
+        const scanner = new CharacterScanner();
         for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            const nextChar = i + 1 < line.length ? line[i + 1] : '';
-            const prevChar = i > 0 ? line[i - 1] : '';
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && line[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    inString = !inString;
-                }
-                result += char;
-                continue;
-            }
-            if (inString) {
-                result += ' ';
-                continue;
-            }
-            if (!inBlockComment && char === '/' && nextChar === '/') {
-                inLineComment = true;
-            }
-            if (inLineComment) {
-                result += ' ';
-                continue;
-            }
-            if (char === '/' && nextChar === '*') {
-                inBlockComment = true;
-                i++;
+            const { skip, skipNext } = scanner.processChar(line, i);
+            if (skipNext) {
                 result += '  ';
-                continue;
-            }
-            if (inBlockComment && char === '*' && nextChar === '/') {
-                inBlockComment = false;
                 i++;
-                result += '  ';
                 continue;
             }
-            if (inBlockComment) {
-                result += ' ';
+            if (skip) {
+                result += line[i] === '"' ? '"' : ' ';
                 continue;
             }
-            result += char;
+            result += line[i];
         }
         return result.trimEnd();
     }

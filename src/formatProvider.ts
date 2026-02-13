@@ -1,5 +1,90 @@
 import * as vscode from 'vscode';
 
+interface BracketInfo {
+    char: string;
+    column: number;
+    lineIndex: number;
+    assignedIndent: number;
+}
+
+interface SpecialLineResult {
+    handled: boolean;
+    output?: string | string[];
+    inBlockComment?: boolean;
+    blockCommentIndent?: number;
+    updateIndentLevel?: number;
+    resetFlags?: boolean;
+    clearBracketStack?: boolean;
+}
+
+class CharacterScanner {
+    inString = false;
+    inLineComment = false;
+    inBlockComment = false;
+
+    /** Process one character, updating state. */
+    processChar(line: string, index: number): { skip: boolean; skipNext: boolean } {
+        const char = line[index];
+        const nextChar = index + 1 < line.length ? line[index + 1] : '';
+
+        // Handle string toggle (double quotes only, with backslash-escape counting)
+        if (char === '"' && !this.inLineComment && !this.inBlockComment) {
+            let backslashCount = 0;
+            let j = index - 1;
+            while (j >= 0 && line[j] === '\\') {
+                backslashCount++;
+                j--;
+            }
+            if (backslashCount % 2 === 0) {
+                this.inString = !this.inString;
+            }
+            return { skip: true, skipNext: false };
+        }
+
+        if (this.inString) {
+            return { skip: true, skipNext: false };
+        }
+
+        // Line comment start
+        if (!this.inBlockComment && char === '/' && nextChar === '/') {
+            this.inLineComment = true;
+            return { skip: true, skipNext: false };
+        }
+
+        if (this.inLineComment) {
+            return { skip: true, skipNext: false };
+        }
+
+        // Block comment start
+        if (char === '/' && nextChar === '*') {
+            this.inBlockComment = true;
+            return { skip: true, skipNext: true };
+        }
+
+        // Block comment end
+        if (this.inBlockComment && char === '*' && nextChar === '/') {
+            this.inBlockComment = false;
+            return { skip: true, skipNext: true };
+        }
+
+        if (this.inBlockComment) {
+            return { skip: true, skipNext: false };
+        }
+
+        return { skip: false, skipNext: false };
+    }
+
+    resetForNewLine(): void {
+        this.inLineComment = false;
+    }
+
+    reset(): void {
+        this.inString = false;
+        this.inLineComment = false;
+        this.inBlockComment = false;
+    }
+}
+
 export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider {
     
     public provideDocumentFormattingEdits(
@@ -7,12 +92,33 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken
     ): vscode.TextEdit[] {
-        const fullRange = new vscode.Range(
-            document.positionAt(0),
-            document.positionAt(document.getText().length)
-        );
-        
-        return this.provideDocumentRangeFormattingEdits(document, fullRange, options, token);
+        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        if (!config.get<boolean>('enabled', true)) {
+            return [];
+        }
+
+        try {
+            const fullRange = new vscode.Range(
+                document.positionAt(0),
+                document.positionAt(document.getText().length)
+            );
+            const text = document.getText(fullRange);
+            const indentSize = config.get<number>('indentSize', options.tabSize);
+            let formattedText = this.formatLPCCode(text, options, indentSize, token);
+
+            if (config.get<boolean>('insertFinalNewline', true) && !formattedText.endsWith('\n')) {
+                formattedText += '\n';
+            }
+
+            if (formattedText === text) {
+                return [];
+            }
+
+            return [vscode.TextEdit.replace(fullRange, formattedText)];
+        } catch (error) {
+            console.error('LPC Formatting Error:', error);
+            return [];
+        }
     }
 
     public provideDocumentRangeFormattingEdits(
@@ -21,9 +127,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken
     ): vscode.TextEdit[] {
+        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        if (!config.get<boolean>('enabled', true)) {
+            return [];
+        }
+
         try {
             const text = document.getText(range);
-            const formattedText = this.formatLPCCode(text, options);
+            const indentSize = config.get<number>('indentSize', options.tabSize);
+            const formattedText = this.formatLPCCode(text, options, indentSize, token);
             
             if (formattedText === text) {
                 return [];
@@ -36,9 +148,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
     }
 
-    private formatLPCCode(code: string, options: vscode.FormattingOptions): string {
-        const indentString = options.insertSpaces 
-            ? ' '.repeat(options.tabSize) 
+    private formatLPCCode(code: string, options: vscode.FormattingOptions, indentSize: number, token?: vscode.CancellationToken): string {
+        const indentString = options.insertSpaces
+            ? ' '.repeat(indentSize)
             : '\t';
         
         let lines = this.preprocessLines(code.split(/\r?\n/));
@@ -50,7 +162,6 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let lastLineWasCaseLabel = false;
         let inCaseBody = false;
         let previousLineNeedsContinuation = false;
-        let previousLineWasFunctionCall = false;
         let previousCurrentIndent = 0;
         let previousLineHadUnclosedBrackets = false;
         let inMultiLineControlStatement = false;
@@ -61,12 +172,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let blockCommentIndent = 0;
         let expectSingleStatementIndent = false;
         let lpcDataStructureDepth = 0;
-        const bracketStack: Array<{ char: string; column: number; lineIndex: number; assignedIndent: number }> = [];
+        const bracketStack: BracketInfo[] = [];
         let preprocessorIndentStack: number[] = [];
-        let lastLineWasPreprocessor = false;
         let inBackslashStringContinuation = false;
 
         for (let i = 0; i < lines.length; i++) {
+            if (token?.isCancellationRequested) {
+                return code;
+            }
+
             const line = lines[i];
             const trimmed = line.trim();
             
@@ -116,20 +230,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 
                 if (specialLineResult.clearBracketStack) {
                     bracketStack.length = 0;
-                }
-                
-                if (specialLineResult.wasPreprocessor) {
-                    lastLineWasPreprocessor = true;
+                    lpcStructureIndentStack.length = 0;
                 }
                 
                 continue;
             }
-            lastLineWasPreprocessor = false;
 
             let currentIndent = indentLevel;
             let leadingCloseBraceHandled = false;
             
-            if (trimmed.startsWith('}') && !trimmed.match(/^}\s*[\)\]\>]/)) {
+            if (trimmed.startsWith('}') && !trimmed.match(/^}\s*[)\]>]/)) {
                 indentLevel = Math.max(0, indentLevel - 1);
                 currentIndent = indentLevel;
                 leadingCloseBraceHandled = true;
@@ -141,7 +251,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
             
-            if (trimmed.match(/^[\}\]\>]\s*\)/) && lpcStructureIndentStack.length > 0) {
+            if (trimmed.match(/^[}\]>]\s*\)/) && lpcStructureIndentStack.length > 0) {
                 if (lpcStructureIndentStack.length > 0) {
                     currentIndent = Math.max(0, lpcStructureIndentStack[lpcStructureIndentStack.length - 1] - 1);
                 } else {
@@ -207,13 +317,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (previousLineNeedsContinuation && bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(') {
+            else if (previousLineNeedsContinuation && bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(' && !trimmed.match(/^[)}\]>]/)) {
                 // Use continuation indent for function arguments (base indent + 1)
                 const parenMatch = bracketStack[bracketStack.length - 1];
                 currentIndent = parenMatch.assignedIndent + 1;
                 lastLineWasCaseLabel = false;
             }
-            else if (trimmed.match(/^(\&\&|\|\|)/) && lpcDataStructureDepth === 0) {
+            else if (trimmed.match(/^(&&|\|\|)/) && lpcDataStructureDepth === 0) {
                 currentIndent = Math.max(indentLevel + 1, previousCurrentIndent);
                 lastLineWasCaseLabel = false;
             }
@@ -263,36 +373,21 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
                 lastLineWasCaseLabel = false;
             }
-            else if (lpcStructureIndentStack.length > 0 && !trimmed.match(/^[\}\]\>]\s*\)/) && trimmed !== ')') {
+            else if (lpcStructureIndentStack.length > 0 && !trimmed.match(/^[}\]>]\s*\)/) && trimmed !== ')') {
                 currentIndent = lpcStructureIndentStack[lpcStructureIndentStack.length - 1];
-                
-                if (bracketStack.length > 0 && !trimmed.match(/^[\)\}\]\>]/)) {
-                    const matchingParen = bracketStack[bracketStack.length - 1];
-                    if (matchingParen.char === '(') {
-                        const matchingLine = lines[matchingParen.lineIndex];
-                        const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                        const baseIndent = Math.floor(leadingSpaces / indentString.length);
-                        const bracketIndent = baseIndent + 1;
-                        currentIndent = Math.max(currentIndent, bracketIndent);
-                    }
-                }
-                
                 lastLineWasCaseLabel = false;
             }
-            else if (bracketStack.length > 0 && !trimmed.match(/^[\)\}\]\>]/)) {
+            else if (bracketStack.length > 0 && !trimmed.match(/^[)}\]>]/)) {
                 const matchingParen = bracketStack[bracketStack.length - 1];
                 if (matchingParen.char === '(') {
-                    const matchingLine = lines[matchingParen.lineIndex];
-                    const leadingSpaces = matchingLine.match(/^\s*/)?.[0].length || 0;
-                    const baseIndent = Math.floor(leadingSpaces / indentString.length);
-                    currentIndent = baseIndent + 1;
+                    currentIndent = matchingParen.assignedIndent + 1;
                 } else {
                     currentIndent = indentLevel;
                 }
                 lastLineWasCaseLabel = false;
             }
             
-            else if (trimmed.match(/^(\&\&|\|\|)/)) {
+            else if (trimmed.match(/^(&&|\|\|)/)) {
                 currentIndent = indentLevel + 1;
                 lastLineWasCaseLabel = false;
             }
@@ -363,7 +458,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const finalTrimmed = this.alignInlineComment(normalizedTrimmed, commentPart);
 
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
-            
+
             let mergedWithPrevLine = false;
             if (trimmed === '{' && result.length > 0) {
                 const prevLine = result[result.length - 1].trim();
@@ -393,52 +488,17 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 inBackslashStringContinuation = true;
             }
             
-            let charInString = false;
-            let charInLineComment = false;
-            let charInBlockComment = false;
-            
+            const lineScanner = new CharacterScanner();
+
             for (let col = 0; col < formattedLine.length; col++) {
+                const { skip, skipNext } = lineScanner.processChar(formattedLine, col);
+                if (skipNext) col++;
+                if (skip) continue;
+
                 const char = formattedLine[col];
                 const nextChar = col + 1 < formattedLine.length ? formattedLine[col + 1] : '';
                 const prevChar = col > 0 ? formattedLine[col - 1] : '';
-                
-                // Properly handle escaped quotes by counting preceding backslashes
-                if (char === '"') {
-                    let backslashCount = 0;
-                    let j = col - 1;
-                    while (j >= 0 && formattedLine[j] === '\\') {
-                        backslashCount++;
-                        j--;
-                    }
-                    // If even number of backslashes (or zero), the quote is not escaped
-                    if (backslashCount % 2 === 0) {
-                        charInString = !charInString;
-                    }
-                    continue;
-                }
-                
-                if (charInString) continue;
-                
-                if (!charInBlockComment && char === '/' && nextChar === '/') {
-                    charInLineComment = true;
-                }
-                
-                if (charInLineComment) continue;
-                
-                if (char === '/' && nextChar === '*') {
-                    charInBlockComment = true;
-                    col++;
-                    continue;
-                }
-                
-                if (charInBlockComment && char === '*' && nextChar === '/') {
-                    charInBlockComment = false;
-                    col++;
-                    continue;
-                }
-                
-                if (charInBlockComment) continue;
-                
+
                 if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
                     const restOfLine = formattedLine.substring(col + 2);
                     const isCast = restOfLine.match(/^(int|string|object|float|mixed|mapping|status|closure|symbol|void|bytes|struct|lwobject|coroutine)\s*\)/);
@@ -456,8 +516,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
                 
                 if ((char === '}' || char === ']' || char === '>') && (nextChar === ')')) {
-                    // For }) closure array close, pop the matching ( that was pushed
-                    if (char === '}' && nextChar === ')' && bracketStack.length > 0) {
+                    // For }), ]), >) LPC structure closers, pop the matching ( that was pushed
+                    if (bracketStack.length > 0) {
                         const last = bracketStack[bracketStack.length - 1];
                         if (last.char === '(') {
                             bracketStack.pop();
@@ -488,6 +548,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                         }
                     }
                 }
+            }
+
+            // Propagate block comment state when /* is opened mid-line without closing
+            if (lineScanner.inBlockComment) {
+                inBlockComment = true;
+                blockCommentIndent = currentIndent;
             }
 
             if (trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/)) {
@@ -525,12 +591,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
             // Update previous line state AFTER updating lpcDataStructureDepth
             previousCurrentIndent = currentIndent;
-            previousLineNeedsContinuation = this.needsContinuation(trimmed, lpcDataStructureDepth > 0);
+            previousLineNeedsContinuation = this.needsContinuation(trimmed);
             previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
-            
-            previousLineWasFunctionCall = (trimmed.endsWith('(') || (this.hasUnclosedBrackets(trimmed) && !!trimmed.match(/\w+\s*\(/))) 
-                && !trimmed.match(/[{\[<]\s*\(\s*$/);
-
             
             if (netLPCChange > 0) {
                 const elementIndent = currentIndent + 1;
@@ -567,13 +629,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
             
             let codeOnly = trimmed;
-            const lineCommentPos = trimmed.indexOf('//');
-            if (lineCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, lineCommentPos).trim();
-            }
-            const blockCommentPos = trimmed.indexOf('/*');
-            if (blockCommentPos >= 0) {
-                codeOnly = trimmed.substring(0, blockCommentPos).trim();
+            const commentPos = this.findFirstCommentOutsideStrings(trimmed);
+            if (commentPos >= 0) {
+                codeOnly = trimmed.substring(0, commentPos).trim();
             }
             
             const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
@@ -606,23 +664,26 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             preprocessorIndentStack: number[];
         },
         indentString: string = '    '
-    ): {
-        handled: boolean;
-        output?: string | string[];
-        inBlockComment?: boolean;
-        blockCommentIndent?: number;
-        updateIndentLevel?: number;
-        resetFlags?: boolean;
-        clearBracketStack?: boolean;
-        wasPreprocessor?: boolean;
-    } {
+    ): SpecialLineResult {
         if (!state.inBlockComment && trimmed.includes('/*')) {
             const startPos = trimmed.indexOf('/*');
-            const endPos = trimmed.indexOf('*/', startPos);
+
+            // Don't treat /* inside strings as block comments
+            if (this.isInsideString(trimmed, startPos)) {
+                return { handled: false };
+            }
+
+            // If there's code before /*, let the normal formatter handle the line;
+            // the main loop will detect the unclosed block comment via character tracking
+            if (startPos > 0) {
+                return { handled: false };
+            }
+
+            const endPos = trimmed.indexOf('*/', startPos + 2);
             if (endPos === -1) {
                 const spaces = indentString.repeat(indentLevel);
                 const afterComment = trimmed.substring(startPos + 2).trim();
-                
+
                 if (afterComment.length > 0) {
                     return {
                         handled: true,
@@ -703,8 +764,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 handled: true,
                 output: trimmed,
                 updateIndentLevel: newIndentLevel,
-                resetFlags: true,
-                wasPreprocessor: true
+                resetFlags: true
             };
         }
         
@@ -744,7 +804,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
-        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])\-([a-zA-Z0-9_"({])/g, '$1 - $2');
+        normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_")\]}])-([a-zA-Z0-9_"({])/g, '$1 - $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
         normalized = this.replaceOutsideStrings(normalized, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
         
@@ -793,141 +853,51 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     } {
         let openBraceCount = 0;
         let closeBraceCount = 0;
-        
-        let braceInString = false;
-        let braceInLineComment = false;
-        let braceInBlockComment = false;
-        
+        let openingCount = 0;
+        let closingCount = 0;
+        const scanner = new CharacterScanner();
+
         for (let i = 0; i < trimmed.length; i++) {
+            const { skip, skipNext } = scanner.processChar(trimmed, i);
+            if (skipNext) i++;
+            if (skip) continue;
+
             const char = trimmed[i];
             const nextChar = i + 1 < trimmed.length ? trimmed[i + 1] : '';
             const prevChar = i > 0 ? trimmed[i - 1] : '';
-            
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && trimmed[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    braceInString = !braceInString;
-                }
-                continue;
-            }
-            
-            if (braceInString) {
-                continue;
-            }
-            
-            if (!braceInBlockComment && char === '/' && nextChar === '/') {
-                braceInLineComment = true;
-            }
-            
-            if (braceInLineComment) {
-                continue;
-            }
-            
-            if (char === '/' && nextChar === '*') {
-                braceInBlockComment = true;
-                i++;
-                continue;
-            }
-            
-            if (braceInBlockComment && char === '*' && nextChar === '/') {
-                braceInBlockComment = false;
-                i++;
-                continue;
-            }
-            
-            if (braceInBlockComment) {
-                continue;
-            }
-            
+
+            // LPC structure openers: ({, ([, (<
             if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                i++;
+                openingCount++;
+                i++;  // Skip the {/[/<
                 continue;
-            } else if (char === '{') {
+            }
+
+            // LPC structure closers: }), ]), >)
+            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
+                closingCount++;
+                i++;  // Skip the )
+                continue;
+            }
+
+            // Skip ) that was part of a structure closer already handled
+            if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
+                continue;
+            }
+
+            // Regular braces
+            if (char === '{') {
                 if (prevChar !== '(' && prevChar !== '[' && prevChar !== '<') {
                     openBraceCount++;
                 }
-            } else if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
-                continue;
-            } else if (char === '}' || char === ']' || char === '>') {
-                if (nextChar === ')') {
-                    i++;
+            } else if (char === '}') {
+                if (i === 0 && leadingCloseBraceHandled) {
                     continue;
                 }
-                if (char === '}') {
-                    if (i === 0 && leadingCloseBraceHandled) {
-                        continue;
-                    }
-                    closeBraceCount++;
-                }
+                closeBraceCount++;
             }
         }
-        
-        // Count LPC-specific structures like ({ }), ([ ]), (< >)
-        // But only count them if they're NOT inside strings or comments
-        let openingCount = 0;
-        let closingCount = 0;
-        
-        let inStr = false;
-        let inLineComm = false;
-        let inBlockComm = false;
-        
-        for (let i = 0; i < trimmed.length - 1; i++) {
-            const char = trimmed[i];
-            const nextChar = trimmed[i + 1];
-            
-            // Track string boundaries
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && trimmed[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    inStr = !inStr;
-                }
-                continue;
-            }
-            
-            if (inStr) continue;
-            
-            // Track line comments
-            if (!inBlockComm && char === '/' && nextChar === '/') {
-                inLineComm = true;
-            }
-            
-            if (inLineComm) continue;
-            
-            // Track block comments
-            if (char === '/' && nextChar === '*') {
-                inBlockComm = true;
-                i++;
-                continue;
-            }
-            
-            if (inBlockComm && char === '*' && nextChar === '/') {
-                inBlockComm = false;
-                i++;
-                continue;
-            }
-            
-            if (inBlockComm) continue;
-            
-            // Count opening patterns
-            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                openingCount++;
-            }
-            // Count closing patterns
-            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
-                closingCount++;
-            }
-        }
-        
+
         return { openBraceCount, closeBraceCount, openingCount, closingCount };
     }
 
@@ -959,6 +929,35 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         return inString;
+    }
+
+    private findFirstCommentOutsideStrings(line: string): number {
+        let inString = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (char === '"') {
+                let backslashCount = 0;
+                let j = i - 1;
+                while (j >= 0 && line[j] === '\\') {
+                    backslashCount++;
+                    j--;
+                }
+                if (backslashCount % 2 === 0) {
+                    inString = !inString;
+                }
+                continue;
+            }
+
+            if (inString) continue;
+
+            if (char === '/' && i + 1 < line.length && (line[i + 1] === '/' || line[i + 1] === '*')) {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private endsWithBackslashInString(line: string): boolean {
@@ -1001,46 +1000,78 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return false;
     }
 
-    private replaceOutsideStrings(line: string, pattern: RegExp, replacement: string | ((match: string, ...args: any[]) => string)): string {
+    private computeStringMask(line: string): boolean[] {
+        const mask = new Array<boolean>(line.length);
+        let inString = false;
+        let stringChar = '';
+        let escaped = false;
+
+        for (let i = 0; i < line.length; i++) {
+            mask[i] = inString;
+
+            const char = line[i];
+
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                escaped = true;
+                continue;
+            }
+
+            if ((char === '"' || char === "'") && !inString) {
+                inString = true;
+                stringChar = char;
+            } else if (char === stringChar && inString) {
+                inString = false;
+                stringChar = '';
+            }
+        }
+
+        return mask;
+    }
+
+    private replaceOutsideStrings(line: string, pattern: RegExp, replacement: string | ((...args: string[]) => string)): string {
         let result = '';
         let lastIndex = 0;
-        
-        // Find all matches
+
         const matches: Array<{index: number, match: RegExpExecArray}> = [];
         let match;
         while ((match = pattern.exec(line)) !== null) {
             matches.push({index: match.index, match});
         }
-        
-        // Apply replacements only if not inside strings
+
+        if (matches.length === 0) {
+            return line;
+        }
+
+        const mask = this.computeStringMask(line);
+
         for (const {index, match} of matches) {
-            // Add the part before this match
             result += line.substring(lastIndex, index);
-            
-            // Check if ANY character in the match is inside a string
+
             let insideString = false;
             for (let i = 0; i < match[0].length; i++) {
-                if (this.isInsideString(line, index + i)) {
+                if (mask[index + i]) {
                     insideString = true;
                     break;
                 }
             }
-            
+
             if (!insideString) {
-                // Not inside string - apply replacement
                 if (typeof replacement === 'function') {
                     result += replacement(match[0], ...match.slice(1));
                 } else {
                     result += match[0].replace(pattern, replacement);
                 }
             } else {
-                // Inside string - keep original
                 result += match[0];
             }
             lastIndex = index + match[0].length;
         }
-        
-        // Add the remaining part
+
         result += line.substring(lastIndex);
         return result || line;
     }
@@ -1157,7 +1188,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return processed;
     }
 
-    private needsContinuation(line: string, insideLPCStructure: boolean = false): boolean {
+    private needsContinuation(line: string): boolean {
         const withoutComment = line.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//, '');
         const trimmedLine = withoutComment.trimEnd();
         
@@ -1173,7 +1204,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return true;
         }
         
-        if (trimmedLine.match(/(\|\||\&\&)\s*$/)) {
+        if (trimmedLine.match(/(\|\||&&)\s*$/)) {
             return true;
         }
         
@@ -1222,7 +1253,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             if (inString) {
                 continue;
             }
-            
+
+            // Skip LPC function references like #'[ - the [ is not an actual bracket
+            if (char === '[' && i >= 2 && line[i - 1] === '\'' && line[i - 2] === '#') {
+                continue;
+            }
+
             // Count brackets only outside strings
             switch (char) {
                 case '(': parens++; break;
@@ -1239,65 +1275,23 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
     private stripCommentsAndStrings(line: string): string {
         let result = '';
-        let inString = false;
-        let inLineComment = false;
-        let inBlockComment = false;
-        
+        const scanner = new CharacterScanner();
+
         for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            const nextChar = i + 1 < line.length ? line[i + 1] : '';
-            const prevChar = i > 0 ? line[i - 1] : '';
-            
-            if (char === '"') {
-                let backslashCount = 0;
-                let j = i - 1;
-                while (j >= 0 && line[j] === '\\') {
-                    backslashCount++;
-                    j--;
-                }
-                if (backslashCount % 2 === 0) {
-                    inString = !inString;
-                }
-                result += char;
-                continue;
-            }
-            
-            if (inString) {
-                result += ' ';
-                continue;
-            }
-            
-            if (!inBlockComment && char === '/' && nextChar === '/') {
-                inLineComment = true;
-            }
-            
-            if (inLineComment) {
-                result += ' ';
-                continue;
-            }
-            
-            if (char === '/' && nextChar === '*') {
-                inBlockComment = true;
-                i++;
+            const { skip, skipNext } = scanner.processChar(line, i);
+
+            if (skipNext) {
                 result += '  ';
-                continue;
-            }
-            
-            if (inBlockComment && char === '*' && nextChar === '/') {
-                inBlockComment = false;
                 i++;
-                result += '  ';
                 continue;
             }
-            
-            if (inBlockComment) {
-                result += ' ';
+            if (skip) {
+                result += line[i] === '"' ? '"' : ' ';
                 continue;
             }
-            
-            result += char;
+            result += line[i];
         }
-        
+
         return result.trimEnd();
     }
 

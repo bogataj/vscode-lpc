@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run compile:*)",
+      "Bash(npm run lint:*)",
+      "WebSearch",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:manual.macromates.com)",
+      "WebFetch(domain:macromates.com)",
+      "WebFetch(domain:clang.llvm.org)",
+      "WebFetch(domain:www.sublimetext.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(git stash:*)",
+      "Bash(node -e:*)",
+      "Bash(git checkout:*)",
+      "Bash(dos2unix:*)",
+      "Bash(npm run package:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

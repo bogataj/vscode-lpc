@@ -2,7 +2,7 @@
   "name": "lpc-ldmud-lp245",
   "displayName": "LPC Language Support (LDMUD/LP-245)",
   "description": "Language support, syntax highlighting and formatting for LPC with LDMUD game driver and LP-245 mudlib",
-  "version": "1.2.11",
+  "version": "1.3.0",
   "publisher": "bogataj",
   "author": {
     "name": "Andreas Bogataj",
@@ -13,8 +13,7 @@
   },
   "categories": [
     "Programming Languages",
-    "Formatters",
-    "Snippets"
+    "Formatters"
   ],
   "keywords": [
     "lpc",
@@ -52,17 +51,20 @@
         "lpc.formatting.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable LPC code formatting"
+          "description": "Enable/disable LPC code formatting",
+          "scope": "resource"
         },
         "lpc.formatting.indentSize": {
           "type": "number",
           "default": 4,
-          "description": "Number of spaces for indentation"
+          "description": "Number of spaces for indentation",
+          "scope": "resource"
         },
         "lpc.formatting.insertFinalNewline": {
           "type": "boolean",
           "default": true,
-          "description": "Insert final newline at end of file"
+          "description": "Insert final newline at end of file",
+          "scope": "resource"
         }
       }
     }

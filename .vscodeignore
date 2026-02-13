@@ -14,3 +14,5 @@ coverage/
 formatted-lpc-test.lpc
 expected-result.lpc
 package-lock.json
+.claude/**
+CLAUDE.md

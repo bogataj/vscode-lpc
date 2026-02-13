@@ -41,7 +41,7 @@ function activate(context) {
     const lpcFormattingProvider = new formatProvider_1.LPCDocumentFormattingEditProvider();
     context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider({ scheme: 'file', language: 'lpc' }, lpcFormattingProvider));
     context.subscriptions.push(vscode.languages.registerDocumentRangeFormattingEditProvider({ scheme: 'file', language: 'lpc' }, lpcFormattingProvider));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('lpc.format', (textEditor) => {
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand('lpc.format', (_textEditor) => {
         vscode.commands.executeCommand('editor.action.formatDocument');
     }));
 }

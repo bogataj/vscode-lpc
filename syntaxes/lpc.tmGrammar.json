@@ -125,7 +125,8 @@
       "patterns": [
         {
           "name": "string.quoted.single.lpc",
-          "match": "'([^'\\\\]|\\\\.)'"        }
+          "match": "'([^'\\\\]|\\\\.)'"
+        }
       ]
     },
     "lpc_closures": {
@@ -244,7 +245,7 @@
         },
         {
           "name": "keyword.operator.lpc",
-          "match": "\\b(efun|inherit|nolog|publish|in|function)\\b"
+          "match": "\\b(efun|inherit|nolog|publish|in)\\b"
         }
       ]
     },
@@ -252,7 +253,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.lpc",
-          "match": "\\b(void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\b"
+          "match": "\\b(void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\b"
         },
         {
           "name": "storage.type.composite.lpc",
@@ -264,7 +265,7 @@
       "patterns": [
         {
           "name": "storage.modifier.lpc",
-          "match": "\\b(public|private|protected|static|nomask|varargs|virtual|nosave)\\b"
+          "match": "\\b(public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\b"
         }
       ]
     },
@@ -313,12 +314,12 @@
           "match": "\\b0[0-7]+\\b"
         },
         {
-          "name": "constant.numeric.decimal.lpc",
-          "match": "\\b[1-9][0-9]*\\b"
-        },
-        {
           "name": "constant.numeric.float.lpc",
           "match": "\\b([0-9]+\\.[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?[fF]?\\b|\\b[0-9]+[eE][+-]?[0-9]+[fF]?\\b|\\b[0-9]+[fF]\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.lpc",
+          "match": "\\b[0-9]+\\b"
         }
       ]
     },
@@ -332,12 +333,20 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.arithmetic.lpc",
-          "match": "\\+|\\-|\\*|/|%|\\+\\+|\\-\\-"
+          "name": "keyword.operator.arrow.lpc",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.assignment.lpc",
+          "match": "<<=|>>=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^="
+        },
+        {
+          "name": "keyword.operator.bitwise.lpc",
+          "match": "<<|>>"
         },
         {
           "name": "keyword.operator.comparison.lpc",
-          "match": "==|!=|<|>|<=|>="
+          "match": "==|!=|<=|>=|<|>"
         },
         {
           "name": "keyword.operator.logical.lpc",
@@ -345,15 +354,15 @@
         },
         {
           "name": "keyword.operator.bitwise.lpc",
-          "match": "&|\\||\\^|~|<<|>>"
+          "match": "&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.arithmetic.lpc",
+          "match": "\\+\\+|\\-\\-|\\+|\\-|\\*|/|%"
         },
         {
           "name": "keyword.operator.assignment.lpc",
-          "match": "=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
-        },
-        {
-          "name": "keyword.operator.arrow.lpc",
-          "match": "->"
+          "match": "=(?!=)"
         },
         {
           "name": "keyword.operator.ternary.lpc",
@@ -365,13 +374,13 @@
       "patterns": [
         {
           "name": "meta.function.lpc",
-          "match": "^\\s*((?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*(void|int|float|string|object|mapping|mixed|unknown|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\s*(\\**)\\s+(\\w+)\\s*\\(",
+          "match": "^\\s*((?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*(void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|struct|lwobject|coroutine|lpctype)\\s*(\\**)\\s+(\\w+)\\s*\\(",
           "captures": {
             "1": {
               "name": "storage.modifier.lpc"
             },
             "2": {
-              "name": "storage.type.return.lpc"
+              "name": "storage.type.primitive.lpc"
             },
             "3": {
               "name": "keyword.operator.lpc"

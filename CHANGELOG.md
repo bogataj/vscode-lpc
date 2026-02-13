@@ -2,6 +2,63 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [1.3.0] - 2026-02-13
+
+### Fixed
+- **Cascading Indentation**: Fixed formatter producing different results on repeated runs
+  - Indentation of LPC data structures (`({`, `([`, `(<`) no longer shifts by one level on each format
+  - Root cause: indent computation referenced original input lines instead of formatter state
+  - Formatter now converges in a single pass regardless of input formatting
+
+- **Bracket Stack Leaking Across Functions**: Fixed state leaking between function bodies
+  - Empty lines now properly reset bracket stack and LPC structure indent stack
+  - Prevents indentation of one function being affected by the previous function's closures
+
+- **LPC Structure Closer Handling**: Fixed `])` and `>)` not popping the bracket stack
+  - Previously only `})` was handled, causing bracket stack entries from mappings and multisets to accumulate
+  - All three LPC structure closers now correctly tracked
+
+- **`#'[` Function Reference**: Fixed `#'[` (LPC function reference to indexing operator) being counted as unclosed bracket
+  - `({#'[, 'a, WL_EXTRA})` no longer causes false continuation detection
+  - Both `hasUnclosedBrackets` and bracket stack tracking now skip `#'[` pattern
+
+- **Continuation vs Closing Bracket Conflict**: Fixed continuation indent overriding closing bracket indent
+  - Lines starting with `})`, `])`, `>)`, or `)` are no longer treated as continuation content
+
+### Improved
+- **Formatter Refactoring**: Major internal cleanup of the formatter engine
+  - Extracted `CharacterScanner` utility class to eliminate duplicated string/comment tracking logic across 7+ methods
+  - Merged two near-identical character-scanning loops in `countBracesAndStructures` into a single pass
+  - Defined `BracketInfo` and `SpecialLineResult` interfaces to replace inline type definitions
+  - Removed dead code: `lastLineWasPreprocessor`, `previousLineWasFunctionCall`, unused `insideLPCStructure` parameter
+
+- **Performance**: Fixed O(n²) behavior in `replaceOutsideStrings`
+  - Added `computeStringMask` to pre-compute string context in a single O(n) pass
+  - Regex match position checks now use O(1) array lookup instead of rescanning from position 0
+  - Early return when no regex matches are found
+
+- **Configuration**: Added `lpc.formatting.enabled` and `lpc.formatting.insertFinalNewline` settings
+  - Formatting can now be toggled on/off via `lpc.formatting.enabled`
+  - `indentSize` is passed as a parameter from callers that already read the config
+  - Cancellation token support for responsive formatting of large files
+
+- **Lint Clean**: Resolved all 26 ESLint errors and warnings
+  - Fixed unnecessary escape characters in regex patterns (`\)`, `\}`, `\>`, `\&`, `\-`)
+  - Fixed ESLint config to properly handle TypeScript (`no-unused-vars` and `no-undef` deferred to TypeScript)
+  - Replaced `any` type with `string[]` in replacement callback signature
+  - Configured `argsIgnorePattern` for underscore-prefixed unused parameters
+
+- **Syntax Highlighting**: Improved TextMate grammar
+  - Operator rules reordered by precedence to prevent regex overlap
+  - Float rule ordered before decimal to correctly tokenize `1.5`
+  - Added `deprecated` to storage modifiers
+  - Removed `function` from keyword operators (conflicts with function declarations)
+  - Removed `unknown` from primitive types (not a valid LDMUD type)
+  - Bare assignment `=` uses negative lookahead `=(?!=)` to avoid matching `==`
+  - Removed single-quote auto-closing pair (conflicts with LPC symbol syntax `'symbol`)
+
+- **Packaging**: Added `.claude/` and `CLAUDE.md` to `.vscodeignore`
+
 ## [1.2.11] - 2025-12-02
 
 ### Fixed

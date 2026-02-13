@@ -1525,3 +1525,4 @@ private int foreign_arts_check() {
     if(wielded_by->query_castspell() && member(ACCEPTED_SPELLS, lower_case(wielded_by->query_castspell()->query_spell_name()) == -1))   // Using a seill not in the list
         return random(100) > 50;
 }
+

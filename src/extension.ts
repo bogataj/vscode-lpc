@@ -19,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerTextEditorCommand('lpc.format', (textEditor) => {
+        vscode.commands.registerTextEditorCommand('lpc.format', (_textEditor) => {
             vscode.commands.executeCommand('editor.action.formatDocument');
         })
     );

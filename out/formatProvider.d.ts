@@ -9,7 +9,9 @@ export declare class LPCDocumentFormattingEditProvider implements vscode.Documen
     private alignInlineComment;
     private countBracesAndStructures;
     private isInsideString;
+    private findFirstCommentOutsideStrings;
     private endsWithBackslashInString;
+    private computeStringMask;
     private replaceOutsideStrings;
     private postProcessMultiLinePatterns;
     private needsContinuation;
