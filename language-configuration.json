@@ -16,9 +16,46 @@
         ["[", "]"],
         ["(", ")"],
         ["\"", "\""],
+        {
+            "open": "/*",
+            "close": "*/",
+            "notIn": ["string", "comment"]
+        },
         ["({", "})"],
         ["([", "])"],
         ["(<", ">)"]
+    ],
+    "onEnterRules": [
+        {
+            "beforeText": "^\\s*//.*$",
+            "action": {
+                "indent": "none",
+                "appendText": "// "
+            }
+        },
+        {
+            "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+            "afterText": "^\\s*\\*/$",
+            "action": {
+                "indent": "indentOutdent",
+                "appendText": " * "
+            }
+        },
+        {
+            "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+            "action": {
+                "indent": "none",
+                "appendText": " * "
+            }
+        },
+        {
+            "beforeText": "^(\\t|[ ])*\\*([ ]([^*]|\\*(?!/))*)?$",
+            "previousLineText": "(?=^(\\s*(/\\*\\*|\\*)).*)(?=(?!(\\s*\\*/)))",
+            "action": {
+                "indent": "none",
+                "appendText": "* "
+            }
+        }
     ],
     "surroundingPairs": [
         ["{", "}"],

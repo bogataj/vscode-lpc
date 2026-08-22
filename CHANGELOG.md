@@ -2,6 +2,34 @@
 
 All notable changes to the "LPC Language Support" extension will be documented in this file.
 
+## [Unreleased]
+
+### Planned
+- Code snippets for common LPC patterns
+- Hover documentation for LDMUD efuns
+- Auto-completion for LDMUD functions
+- Signature help for function parameters
+
+## [1.4.0] - 2026-08-22
+
+### Added
+- Block comment auto-closing outside strings and existing comments
+- Automatic `//` and `/** ... */` continuation when pressing Enter
+- Extension Host integration tests with single-test filtering and CI coverage
+
+### Fixed
+- Formatter mutations inside inline block comments and indentation caused by braces in character literals
+- Spacing after quoted LPC symbols and K&R braces for pointer-return functions
+- Nested switch state leaking into outer `case` indentation
+- Range formatting losing the selected block's base indentation
+- Missing highlighting for `#'[`, `#'[..`, and pointer-return function declarations
+- Stale lockfile metadata, the broken test script, and the ESLint module-format warning
+- Development dependency advisories reported by `npm audit`
+
+### Changed
+- Numeric TextMate patterns are evaluated once instead of recursively re-including all constants
+- VSIX packaging excludes compiled test files
+
 ## [1.3.0] - 2026-02-13
 
 ### Fixed
@@ -336,11 +364,3 @@ All notable changes to the "LPC Language Support" extension will be documented i
 - Properly aligns closing parentheses with their opening context
 - Maintains consistent indentation for lambda bodies and closures
 - Special handling for mapping elements and nested structures
-
-## [Unreleased]
-
-### Planned
-- Code snippets for common LPC patterns
-- Hover documentation for LDMUD efuns
-- Auto-completion for LDMUD functions
-- Signature help for function parameters

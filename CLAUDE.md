@@ -8,23 +8,28 @@ VS Code extension providing language support for **LPC (Lars Pensjö C)** target
 
 ## Build & Development Commands
 
+Use Node.js 20.19 or newer.
+
 ```bash
 npm run compile       # Compile TypeScript to out/
 npm run watch         # Compile in watch mode
 npm run lint          # ESLint on src/**/*.ts
 npm run test          # Run tests (compiles + lints first via pretest)
+npm test -- "name"    # Run tests whose names contain the given text
 npm run package       # Build .vsix extension package with vsce
 ```
 
-**Debug:** Press F5 in VS Code to launch an Extension Development Host with the extension loaded.
+**Debug:** Press F5 in VS Code to compile and launch an Extension Development Host.
 
 ## Architecture
 
-The extension has two source files and a grammar definition:
+The extension has a small runtime plus an Extension Host test harness:
 
 - **`src/extension.ts`** — Entry point. Registers the formatting provider for document and range formatting, plus the `lpc.format` command. Activates on `onLanguage:lpc`.
 
 - **`src/formatProvider.ts`** (~1,300 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
+
+- **`src/test/runTest.ts` / `src/test/suite/index.ts`** — Launch VS Code through `@vscode/test-electron` and run dependency-free integration tests. Test names can be filtered with the argument passed to `npm test --`.
 
 - **`syntaxes/lpc.tmGrammar.json`** — TextMate grammar for syntax highlighting. Covers LDMUD-specific efuns, applies, closures, lambdas, data types, and preprocessor directives.
 
@@ -32,13 +37,14 @@ The extension has two source files and a grammar definition:
 
 The formatter processes lines sequentially, maintaining state across:
 - **Indent tracking** — `indentLevel`, bracket stack with indent assignments
-- **Switch/case** — Tracks switch context for LDMUD `-cli0` style (case at same level as switch)
+- **Switch/case** — Uses a context stack so nested switches retain LDMUD `-cli0` style (case at the same level as its switch)
 - **LPC data structures** — Depth tracking for `({...})` arrays, `([...])` mappings, `(<...>)` multisets
-- **String safety** — `isInsideString()`, `endsWithBackslashInString()` ensure string content is never modified
+- **Protected text** — `CharacterScanner` distinguishes strings, character literals, comments, and quoted LPC symbols so protected content is never modified
 - **Block comments** — Preserves formatting within `/* */` blocks
 - **Continuation lines** — Detects unclosed brackets, trailing operators/commas
+- **Range formatting** — Expands selections to complete lines and seeds indentation from the first selected content line
 
-Key helper methods: `preprocessLines()` (splits compound statements), `normalizeSpacing()` (operator spacing), `countBracesAndStructures()` (bracket stack management), `replaceOutsideStrings()` (safe regex replacement), `stripCommentsAndStrings()` (analysis-safe line content), `findFirstCommentOutsideStrings()` (string-aware comment detection).
+Key helper methods: `preprocessLines()` (splits compound statements), `normalizeSpacing()` (operator spacing), `countBracesAndStructures()` (bracket stack management), `replaceOutsideProtectedText()` (safe regex replacement), `stripCommentsAndStrings()` (analysis-safe line content), and `findFirstCommentOutsideStrings()` (string-aware comment detection).
 
 ### TextMate Grammar (`lpc.tmGrammar.json`)
 
@@ -53,7 +59,9 @@ Defined in `package.json` under `contributes.configuration`:
 
 ## Testing Approach
 
-The formatter is validated using zero-diff testing against real-world LDMUD/LP-245 mudlib code. The file `formatted-lpc-test.lpc` contains representative test cases. When modifying the formatter, run it against this file and verify the output matches expectations — any unintended diff indicates a regression.
+`npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, grammar patterns, and zero-diff/idempotence checks against `formatted-lpc-test.lpc`. The first run downloads a cached VS Code test build into `.vscode-test/`.
+
+After changing TypeScript, commit the regenerated tracked files under `out/`. Test output under `out/test/` is excluded from the VSIX.
 
 ## LPC Language Specifics
 

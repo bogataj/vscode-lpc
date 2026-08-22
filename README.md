@@ -1,24 +1,24 @@
 # LPC Language Support (LDMUD/LP-245)
 
-A comprehensive Visual Studio Code extension providing production-quality language support for LPC (Lars Pensjö C) used with the LDMUD game driver and LP-245 mudlib.
+A Visual Studio Code extension providing syntax highlighting, editor configuration, and code formatting for LPC (Lars Pensjö C) used with the LDMUD game driver and LP-245 mudlib.
 
 **Author**: Andreas Bogataj (andreas@bogga.se)
 
 ## Overview
 
-This extension is specifically tailored for LDMUD's implementation of LPC and battle-tested with the LP-245 mudlib. It provides complete syntax highlighting, a production-grade code formatter, and full language support for LDMUD-specific constructs.
+This extension is specifically tailored for LDMUD's implementation of LPC and battle-tested with the LP-245 mudlib. It provides TextMate syntax highlighting, LPC-aware editor behavior, and a production-grade code formatter.
 
 ## Features
 
 ### Comprehensive Syntax Highlighting
 
-Complete syntax support for all LPC/LDMUD language constructs:
+Syntax highlighting for LPC/LDMUD language constructs:
 
 - **Keywords & Control Flow**: `if`, `else`, `for`, `foreach`, `while`, `switch`, `case`, `default`, `break`, `continue`, `return`
 - **Data Types**: `void`, `int`, `float`, `string`, `object`, `mapping`, `mixed`, `closure`, `symbol`, `bytes`, `struct`, `lwobject`, `coroutine`
 - **Modifiers**: `public`, `private`, `protected`, `static`, `nomask`, `varargs`, `deprecated`
-- **LDMUD Efuns**: All built-in functions like `write()`, `tell_object()`, `clone_object()`, `call_out()`, etc.
-- **Apply Functions**: Standard applies like `create()`, `init()`, `heart_beat()`, `reset()`
+- **LDMUD Efuns**: Built-in functions such as `write()`, `tell_object()`, `clone_object()`, and `call_out()`
+- **Apply Functions**: Common applies such as `create()`, `init()`, `heart_beat()`, and `reset()`
 - **Preprocessor Directives**: `#include`, `#define`, `#ifdef`, `#ifndef`, `#pragma`
 - **Special Constructs**: Function pointers `#'`, closures `({})`, lambda expressions, inline closures
 
@@ -54,6 +54,13 @@ The formatter has been extensively tested and refined on real-world codebases wi
 - Mixed data structure declarations
 - Deeply nested structures with closing patterns like `}));` and `}) ) )`
 
+### Editor Behavior
+
+- Auto-closes `/*` comments outside strings and existing comments
+- Continues `//` comments when Enter is pressed
+- Continues `/** ... */` documentation comments with leading `*`
+- Provides LPC-aware bracket pairs, folding, and indentation rules
+
 ### Configuration
 
 Customize the formatter through VS Code settings:
@@ -86,16 +93,25 @@ Customize the formatter through VS Code settings:
 
 ## Development
 
-To develop this extension:
+Development requires Node.js 20.19 or newer:
 
 ```bash
 git clone https://github.com/bogataj/vscode-lpc
 cd vscode-lpc
 npm install
 npm run compile
+npm run lint
+npm test
+npm run package
 ```
 
-Press F5 to open a new VS Code window with the extension loaded.
+Run one integration test by passing part of its name:
+
+```bash
+npm test -- "nested switch"
+```
+
+Press F5 to compile the extension and open a new Extension Development Host.
 
 ## Contributing
 

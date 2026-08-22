@@ -1210,9 +1210,9 @@ void test_lambda_brace_balance_complex() {
     filter_array(all_inventory(environment()) - ({ this_object() }),
         lambda(({'a}),
             ({#'?,
-                ({#'living,'a}),
+                ({#'living, 'a}),
                 ({#'?!,
-                    ({#'call_other,'a, "test_dark", 1}),
+                    ({#'call_other, 'a, "test_dark", 1}),
                     ({#'?,
                         ({#'call_other, 'a, "query_see_invis", 1}),
                         ({#'call_other, 'a, "receive",
@@ -1472,7 +1472,7 @@ void test_closure_with_array_operations() {
                             cap_name, level, "movement", msg }) }) )}) }) ));
     } else {
         arr = filter_array(arr,
-            lambda(({'x}),({#'!=,
+            lambda(({'x}), ({#'!=,
                 ({#'filter_array, 'x, lambda(({'a}),
                     ({#'&&, ({#'environment, 'a}),
                         ({#'==, ({#'query_cap_name, ({#'environment, 'a})}),
@@ -1525,4 +1525,3 @@ private int foreign_arts_check() {
     if(wielded_by->query_castspell() && member(ACCEPTED_SPELLS, lower_case(wielded_by->query_castspell()->query_spell_name()) == -1))   // Using a seill not in the list
         return random(100) > 50;
 }
-

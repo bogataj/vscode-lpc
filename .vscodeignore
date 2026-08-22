@@ -2,10 +2,11 @@
 .vscode-test/**
 node_modules/**
 src/**
+out/test/**
 .gitignore
 .github/**
 tsconfig.json
-eslint.config.js
+eslint.config.mjs
 *.vsix
 out/**/*.map
 .nyc_output

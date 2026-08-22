@@ -3,7 +3,7 @@ import { LPCDocumentFormattingEditProvider } from './formatProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     const lpcFormattingProvider = new LPCDocumentFormattingEditProvider();
-    
+
     context.subscriptions.push(
         vscode.languages.registerDocumentFormattingEditProvider(
             { scheme: 'file', language: 'lpc' },
@@ -19,9 +19,10 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerTextEditorCommand('lpc.format', (_textEditor) => {
-            vscode.commands.executeCommand('editor.action.formatDocument');
-        })
+        vscode.commands.registerTextEditorCommand(
+            'lpc.format',
+            () => vscode.commands.executeCommand('editor.action.formatDocument')
+        )
     );
 }
 
