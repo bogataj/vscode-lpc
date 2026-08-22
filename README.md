@@ -110,6 +110,9 @@ npm test
 npm run package
 ```
 
+Build output under `out/` is generated locally and is not committed. Packaging
+rebuilds it automatically through the `vscode:prepublish` script.
+
 Run one integration test by passing part of its name:
 
 ```bash

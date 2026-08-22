@@ -10,7 +10,7 @@ Use Node.js 20.19 or newer.
 
 ```powershell
 npm install          # Install development dependencies
-npm run compile      # Compile src/**/*.ts to the tracked out/ runtime files
+npm run compile      # Clean and compile src/**/*.ts to generated out/ files
 npm run watch        # Compile continuously
 npm run lint         # ESLint src/**/*.ts
 npm test             # Compile, lint, and run Extension Host integration tests
@@ -18,7 +18,7 @@ npm test -- "name"   # Run tests whose names contain the given text
 npm run package      # Build the VSIX with vsce
 ```
 
-Press F5 in VS Code to compile and run the extension in an Extension Development Host. The launch configuration loads `out/**/*.js` and invokes the `npm: compile` pre-launch task. Runtime JavaScript, declarations, and source maps under `out/` are tracked; include regenerated changes when modifying `src/`.
+Press F5 in VS Code to compile and run the extension in an Extension Development Host. The launch configuration loads `out/**/*.js` and invokes the `npm: compile` pre-launch task. Files under `out/` are generated and ignored by Git; `vscode:prepublish` rebuilds them before packaging.
 
 `npm test` uses `@vscode/test-electron`; its first run downloads a cached VS Code build into `.vscode-test/`. Formatter cases are sanitized input/expected pairs under `src/test/fixtures/formatter/` and are discovered automatically. Keep each pair focused on one behavior. The runner checks exact output and requires the second formatting pass to be a no-op.
 
@@ -29,7 +29,7 @@ Press F5 in VS Code to compile and run the extension in an Extension Development
 - `src/formatProvider.ts` contains the formatter. Its pipeline preprocesses compound lines, performs a lightweight structural pass for brace-less control nesting, handles comments/preprocessor/blank lines, computes indentation from persistent state, separates inline comments, normalizes only unprotected code, updates bracket and LPC-structure stacks, then applies multiline post-processing. Range formatting expands selections to complete lines and seeds the formatter from their existing indentation; whole-document formatting alone applies the configured final newline.
 - `src/test/runTest.ts` launches the Extension Development Host; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/suite/formatterFixtures.ts` discovers formatter fixture pairs.
 - `syntaxes/lpc.tmGrammar.json` controls tokenization and highlighting only. `language-configuration.json` separately controls comments, bracket pairs, auto-closing, indentation, and folding. Neither drives the formatter.
-- `out/extension.js` is the packaged entry point. `.vscodeignore` excludes TypeScript sources, test output, source maps, fixtures, and assistant instructions from the VSIX.
+- Generated `out/extension.js` is the packaged entry point. `.vscodeignore` excludes TypeScript sources, test output, declarations, source maps, fixtures, and assistant instructions from the VSIX.
 
 ## Repository-specific conventions
 

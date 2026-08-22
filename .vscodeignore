@@ -8,6 +8,7 @@ out/test/**
 tsconfig.json
 eslint.config.mjs
 *.vsix
+out/**/*.d.ts
 out/**/*.map
 .nyc_output
 coverage/

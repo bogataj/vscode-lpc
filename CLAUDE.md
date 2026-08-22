@@ -62,7 +62,7 @@ Defined in `package.json` under `contributes.configuration`:
 
 `npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, and grammar patterns. Formatter regressions are auto-discovered from sanitized input/expected pairs in `src/test/fixtures/formatter/`; every pair must match exactly and converge after one formatting pass. The first run downloads a cached VS Code test build into `.vscode-test/`.
 
-After changing TypeScript, commit the regenerated tracked files under `out/`. Test output under `out/test/` is excluded from the VSIX.
+Files under `out/` are generated and ignored by Git. `npm run compile` creates them for development, and `vscode:prepublish` rebuilds them before packaging. Test output under `out/test/` is excluded from the VSIX.
 
 ## LPC Language Specifics
 

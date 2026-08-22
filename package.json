@@ -73,8 +73,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\"",
+    "compile": "npm run clean && tsc -p ./",
+    "watch": "npm run clean && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src/**/*.ts",
     "test": "node ./out/test/runTest.js",
