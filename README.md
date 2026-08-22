@@ -28,9 +28,11 @@ The formatter has been extensively tested and refined on real-world codebases wi
 
 **Smart Indentation:**
 - Context-aware indentation for nested blocks
+- Correct nesting for brace-less controls and dangling `else` clauses
 - Switch/case statement handling with LDMUD `-cli0` style (case labels at same indent as switch)
 - Multi-line statement continuation with proper alignment
 - Bracket stack tracking for complex nested structures
+- Comments, blank lines, and preprocessor directives preserve active statement context
 
 **LPC-Specific Features:**
 - **Closure Syntax Protection**: Patterns like `( ({ ... })` preserved correctly
@@ -45,9 +47,12 @@ The formatter has been extensively tested and refined on real-world codebases wi
 - Ternary operator alignment: `? :`
 - Logical operators: `&&`, `||`, `!`
 - Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>`
+- C-style control keywords and compact LPC member access: `if (...)`, `object->method()`
+- Brace-right control blocks and joined `} else {` clauses
 
 **Edge Case Handling:**
 - One-liner function and control statement preservation
+- Token-preserving formatting: brace-less bodies remain brace-less and valid trailing commas remain intact
 - Inline comments containing brace characters
 - Nested function calls and closures
 - Complex lambda expressions
@@ -108,8 +113,12 @@ npm run package
 Run one integration test by passing part of its name:
 
 ```bash
-npm test -- "nested switch"
+npm test -- "nested switches"
 ```
+
+Formatter regressions live as isolated input/expected pairs under
+`src/test/fixtures/formatter/`. `npm test` discovers every pair automatically,
+checks its expected output, and verifies that a second formatting pass is a no-op.
 
 Press F5 to compile the extension and open a new Extension Development Host.
 

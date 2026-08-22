@@ -1,0 +1,6 @@
+#define VALUES ({1,2})
+#define MORE_VALUES \
+    ({3,4})
+void consume() {
+    mixed *values = VALUES;
+}

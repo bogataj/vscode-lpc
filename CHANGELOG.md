@@ -4,6 +4,30 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-22
+
+### Fixed
+- Nested brace-less controls now retain every pending indentation level and preserve dangling-`else` ownership visually
+- Multi-line control conditions no longer under-indent brace-less bodies or over-indent braced bodies
+- Blank lines, comments, preprocessor directives, and escaped-newline strings no longer discard active continuation state
+- Leading operators, split casts, split pointer-return declarations, and multi-line closures now use stable continuation indentation
+- Formatting no longer removes a closing parenthesis from spaced LPC structure closers or drops code after a block-comment terminator
+- Multi-line lambda and LPC structure formatting now converges after one pass
+- Multi-line preprocessor conditions and conditional branches preserve control-body and dangling-`else` ownership
+- Backslash-continued string contents remain protected during multiline post-processing
+- Range formatting now declines selections that begin inside continued strings, block comments, or macro continuations
+- Range formatting preserves enclosing indentation when a selection starts with preprocessor directives
+- Preprocessor directives and continued macro bodies bypass multiline post-processing
+- Comments inside multiline control headers no longer disrupt dangling-`else` analysis
+- Casts with inner whitespace normalize completely in one formatting pass
+
+### Changed
+- Control and function braces use brace-right placement where they can be moved safely
+- Adjacent `else` clauses are joined to the preceding closing brace
+- Control keywords, function calls, casts, and `->` member access use consistent C-style spacing
+- Valid trailing commas in LPC arrays and mappings are preserved
+- Formatter regressions now use auto-discovered, sanitized input/expected fixture pairs instead of a monolithic sample file
+
 ### Planned
 - Code snippets for common LPC patterns
 - Hover documentation for LDMUD efuns
@@ -311,7 +335,7 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ### Added
 - **K&R Function Brace Style**: Function opening braces now appear on the same line as the declaration (industry standard)
-- **Always-Braces Mode**: Enhanced safety with braces required for all single-statement bodies
+- **Brace-Aware Formatting**: Preserved both braced and brace-less single-statement bodies
 - **Industry-Standard Block Comments**: Aligned asterisk formatting for multi-line comments
   - Automatic ` * ` formatting for continuation lines
   - Smart detection of inline vs. multi-line comments

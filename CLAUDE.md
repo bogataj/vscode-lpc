@@ -27,7 +27,7 @@ The extension has a small runtime plus an Extension Host test harness:
 
 - **`src/extension.ts`** — Entry point. Registers the formatting provider for document and range formatting, plus the `lpc.format` command. Activates on `onLanguage:lpc`.
 
-- **`src/formatProvider.ts`** (~1,300 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
+- **`src/formatProvider.ts`** (~1,800 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
 
 - **`src/test/runTest.ts` / `src/test/suite/index.ts`** — Launch VS Code through `@vscode/test-electron` and run dependency-free integration tests. Test names can be filtered with the argument passed to `npm test --`.
 
@@ -37,14 +37,15 @@ The extension has a small runtime plus an Extension Host test harness:
 
 The formatter processes lines sequentially, maintaining state across:
 - **Indent tracking** — `indentLevel`, bracket stack with indent assignments
+- **Brace-less control flow** — A lightweight structural pass assigns nesting depth before line formatting
 - **Switch/case** — Uses a context stack so nested switches retain LDMUD `-cli0` style (case at the same level as its switch)
 - **LPC data structures** — Depth tracking for `({...})` arrays, `([...])` mappings, `(<...>)` multisets
 - **Protected text** — `CharacterScanner` distinguishes strings, character literals, comments, and quoted LPC symbols so protected content is never modified
 - **Block comments** — Preserves formatting within `/* */` blocks
-- **Continuation lines** — Detects unclosed brackets, trailing operators/commas
+- **Continuation lines** — Detects unclosed brackets, leading/trailing operators, casts, and commas without losing state across trivia
 - **Range formatting** — Expands selections to complete lines and seeds indentation from the first selected content line
 
-Key helper methods: `preprocessLines()` (splits compound statements), `normalizeSpacing()` (operator spacing), `countBracesAndStructures()` (bracket stack management), `replaceOutsideProtectedText()` (safe regex replacement), `stripCommentsAndStrings()` (analysis-safe line content), and `findFirstCommentOutsideStrings()` (string-aware comment detection).
+Key helper methods: `preprocessLines()` (splits compound statements), `analyzeControlFlow()` (computes brace-less nesting), `normalizeSpacing()` (operator spacing), `countBracesAndStructures()` (bracket stack management), `replaceOutsideProtectedText()` (safe regex replacement), `stripCommentsAndStrings()` (analysis-safe line content), and `findFirstCommentOutsideStrings()` (string-aware comment detection).
 
 ### TextMate Grammar (`lpc.tmGrammar.json`)
 
@@ -59,7 +60,7 @@ Defined in `package.json` under `contributes.configuration`:
 
 ## Testing Approach
 
-`npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, grammar patterns, and zero-diff/idempotence checks against `formatted-lpc-test.lpc`. The first run downloads a cached VS Code test build into `.vscode-test/`.
+`npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, and grammar patterns. Formatter regressions are auto-discovered from sanitized input/expected pairs in `src/test/fixtures/formatter/`; every pair must match exactly and converge after one formatting pass. The first run downloads a cached VS Code test build into `.vscode-test/`.
 
 After changing TypeScript, commit the regenerated tracked files under `out/`. Test output under `out/test/` is excluded from the VSIX.
 

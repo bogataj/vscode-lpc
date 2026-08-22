@@ -1,0 +1,19 @@
+void execute(int active) {
+if(active)
+// body comment
+perform();
+if(active)
+
+perform();
+if(active)
+/* body note */
+perform();
+if(active)
+#if OPTIONAL_STEP
+#endif
+perform();
+do
+if(active)
+perform();
+while(active);
+}

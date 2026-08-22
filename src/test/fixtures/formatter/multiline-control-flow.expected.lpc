@@ -1,0 +1,55 @@
+void scan(int first, int second, int third) {
+    if (first &&
+        second) {
+        record();
+        advance();
+    }
+    for (int index = 0; index < 2; index++)
+        if (first
+            && second)
+            record();
+    if (first ||
+        second ||
+        third)
+        return;
+    for (int index = 0;
+        index < 2;
+        index++)
+        record();
+    for
+    (
+        int index = 0;
+        index < 2;
+        index++
+    )
+        record();
+    for (string text = "first\
+second";
+        text;
+        text = 0)
+        record();
+    foreach (mixed entry : entries)
+        if (entry)
+            record(entry);
+    switch
+    (
+        second
+    ) {
+    case 1:
+        record();
+        break;
+    }
+    if (first)
+        switch (second) {
+        case 1:
+            record();
+            break;
+        default:
+            use_default();
+        }
+    prepare(); switch (third) {
+    case 1:
+        record();
+        break;
+    }
+}

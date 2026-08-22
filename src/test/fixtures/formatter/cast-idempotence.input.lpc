@@ -1,0 +1,3 @@
+void cast_value(mixed source) {
+mixed value = ( int) source;
+}

@@ -1,0 +1,31 @@
+#define APPLY(value) \
+    if (value) { \
+        invoke(value); }
+/*
+ * #if HIDDEN_BRANCH \
+ */
+int visible = 1;
+void inspect(string value) {
+    call(
+#if FEATURE_ENABLED
+        first,
+#else
+        /*
+         * #endif
+         */
+        second,
+#endif
+        third
+    );
+    if ("first\
+second" == value) {
+        invoke();
+    }
+    write("prefix\
+*/ suffix");
+    write("comment\
+end"); /* note
+     * {
+     */
+    next();
+}

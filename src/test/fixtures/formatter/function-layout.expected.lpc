@@ -1,0 +1,7 @@
+int compute(int mode)
+
+// generic note
+{
+    if (mode){return 1;}
+    return 0;
+}

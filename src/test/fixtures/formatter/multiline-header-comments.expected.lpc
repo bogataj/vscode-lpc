@@ -1,0 +1,13 @@
+void choose(int outer, int inner, int ready) {
+    if (outer)
+        if (inner &&
+            // condition note
+            ready)
+#if FAST_MODE
+            use_fast();
+#else
+            use_safe();
+#endif
+        else
+            use_default();
+}

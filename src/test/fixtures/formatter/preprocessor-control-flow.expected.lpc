@@ -1,0 +1,56 @@
+#define APPLY_IF(value) \
+    if (value)
+{
+    perform();
+}
+#if SHARED_VALUE
+int shared = 1;
+#endif
+void choose(int enabled) {
+    if (enabled)
+#if OPTIONAL_STEP
+#endif
+        perform();
+    if (enabled)
+#if FAST_MODE
+        use_fast();
+#else
+        use_safe();
+#endif
+    finish();
+    value = prefix +
+#if FAST_MODE
+        first
+#else
+        second
+#endif
+        + suffix;
+    if (enabled)
+#if FAST_MODE
+    {
+        use_fast();
+    }
+#else
+    {
+        use_safe();
+    }
+#endif
+    finish();
+#if FIRST_RULE
+    if (enabled)
+#else
+    if (shared)
+#endif
+        perform();
+#if FIRST_RULE
+    if (enabled)
+#else
+    if (shared)
+#endif
+    {
+        use_fast();
+    } else {
+        use_safe();
+    }
+    finish();
+}

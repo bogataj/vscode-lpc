@@ -1,0 +1,17 @@
+void transform() {
+    closure chooser = lambda(
+        ({ 'left, 'right }),
+        ({
+            #'?,
+            ({#'>, 'left, 'right}),
+            ({#'+, 'left, 1}),
+            ({#'-, 'right, 1})
+        })
+    );
+    mixed *output = map(
+        ({ 1, 2, 3 }),
+        lambda(({'entry}), ({#'*, 'entry, 2}))
+    );
+    closure indexer = lambda(({'items, 'position}), ({#'[, 'items, 'position}));
+    closure slicer = lambda(({'items}), ({#'[.., 'items, 0, 2}));
+}

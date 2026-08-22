@@ -1,0 +1,18 @@
+void route(int outer, int inner) {
+    for (int index = 0; index < 2; index++)
+        if (outer)
+            dispatch(index);
+    if (outer)
+        if (inner)
+            use_primary();
+        else
+            use_secondary();
+    else
+        use_default();
+    if (outer)
+        while (inner) {
+            dispatch(4);
+        }
+    else
+        dispatch(5);
+}

@@ -1,0 +1,15 @@
+void choose(int outer, int inner) {
+    if (outer)
+        if (inner)
+#if FIRST_RULE
+#if NESTED_RULE
+            use_fast();
+#else
+            use_steady();
+#endif
+#else
+            use_safe();
+#endif
+        else
+            use_default();
+}

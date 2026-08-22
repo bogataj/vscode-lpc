@@ -1,132 +1,17 @@
 import * as assert from 'assert';
 import { promises as fs } from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LPCDocumentFormattingEditProvider } from '../../formatProvider';
+import { loadFormatterFixtureTests } from './formatterFixtures';
+import { formattingOptions, withLpcDocument } from './formatTestUtils';
 
 interface TestCase {
     name: string;
     run: () => Promise<void>;
 }
 
-const formattingOptions: vscode.FormattingOptions = {
-    insertSpaces: true,
-    tabSize: 4
-};
-
-async function withLpcDocument<T>(content: string, callback: (document: vscode.TextDocument) => T | Promise<T>): Promise<T> {
-    const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vscode-lpc-test-'));
-    const filePath = path.join(temporaryDirectory, 'test.lpc');
-
-    try {
-        await fs.writeFile(filePath, content, 'utf8');
-        const document = await vscode.workspace.openTextDocument(filePath);
-        assert.strictEqual(document.languageId, 'lpc');
-        return await callback(document);
-    } finally {
-        await fs.rm(temporaryDirectory, { recursive: true, force: true });
-    }
-}
-
-async function formatDocument(content: string): Promise<string> {
-    return withLpcDocument(content, document => {
-        const provider = new LPCDocumentFormattingEditProvider();
-        const cancellation = new vscode.CancellationTokenSource();
-        try {
-            const edits = provider.provideDocumentFormattingEdits(document, formattingOptions, cancellation.token);
-            assert.ok(edits.length <= 1);
-            return edits[0]?.newText ?? document.getText();
-        } finally {
-            cancellation.dispose();
-        }
-    });
-}
-
-const tests: TestCase[] = [
-    {
-        name: 'preserves comments and character literals',
-        run: async () => {
-            const input = [
-                'void test() {',
-                "int brace = '{';",
-                'int value=1; /* keep a+b and x=2 */',
-                'write("ok");',
-                '}'
-            ].join('\n');
-            const expected = [
-                'void test() {',
-                "    int brace = '{';",
-                '    int value = 1; /* keep a+b and x=2 */',
-                '    write("ok");',
-                '}',
-                ''
-            ].join('\n');
-
-            assert.strictEqual(await formatDocument(input), expected);
-        }
-    },
-    {
-        name: 'formats quoted symbols and pointer-return functions',
-        run: async () => {
-            const input = [
-                'int *query_values()',
-                '{',
-                "mixed value='symbol+1;",
-                'return ({ value });',
-                '}'
-            ].join('\n');
-            const expected = [
-                'int *query_values() {',
-                "    mixed value = 'symbol + 1;",
-                '    return ({ value });',
-                '}',
-                ''
-            ].join('\n');
-
-            assert.strictEqual(await formatDocument(input), expected);
-        }
-    },
-    {
-        name: 'keeps nested switch contexts independent',
-        run: async () => {
-            const input = [
-                'void test(int outer, int inner) {',
-                'switch(outer) {',
-                'case 1:',
-                'switch(inner) {',
-                'case 2:',
-                'write("inner");',
-                'break;',
-                '}',
-                'break;',
-                'case 3:',
-                'write("outer");',
-                'break;',
-                '}',
-                '}'
-            ].join('\n');
-            const expected = [
-                'void test(int outer, int inner) {',
-                '    switch(outer) {',
-                '    case 1:',
-                '        switch(inner) {',
-                '        case 2:',
-                '            write("inner");',
-                '            break;',
-                '        }',
-                '        break;',
-                '    case 3:',
-                '        write("outer");',
-                '        break;',
-                '    }',
-                '}',
-                ''
-            ].join('\n');
-
-            assert.strictEqual(await formatDocument(input), expected);
-        }
-    },
+const integrationTests: TestCase[] = [
     {
         name: 'preserves base indentation for range formatting',
         run: async () => {
@@ -213,19 +98,86 @@ const tests: TestCase[] = [
                     cancellation.dispose();
                 }
             });
-        }
-    },
-    {
-        name: 'keeps the comprehensive formatter fixture unchanged',
-        run: async () => {
-            const fixturePath = path.resolve(__dirname, '../../..', 'formatted-lpc-test.lpc');
-            const expectedPath = path.resolve(__dirname, '../../..', 'expected-result.lpc');
-            const input = await fs.readFile(fixturePath, 'utf8');
-            const expected = await fs.readFile(expectedPath, 'utf8');
-            assert.strictEqual(input.replace(/\r\n/g, '\n'), expected.replace(/\r\n/g, '\n'));
-            const formatted = await formatDocument(input);
-            assert.strictEqual(formatted, input);
-            assert.strictEqual(await formatDocument(formatted), formatted);
+
+            const unmatchedCloseInput = [
+                'void outer() {',
+                '    if (ready) {',
+                '        handle();',
+                '    }',
+                '    else',
+                '    fallback();',
+                '    if (other)',
+                '    next();',
+                '}'
+            ].join('\n');
+            await withLpcDocument(unmatchedCloseInput, document => {
+                const provider = new LPCDocumentFormattingEditProvider();
+                const cancellation = new vscode.CancellationTokenSource();
+                try {
+                    const edits = provider.provideDocumentRangeFormattingEdits(
+                        document,
+                        new vscode.Range(3, 0, 8, 0),
+                        formattingOptions,
+                        cancellation.token
+                    );
+                    assert.strictEqual(edits.length, 1);
+                    assert.strictEqual(edits[0].newText, [
+                        '    } else',
+                        '        fallback();',
+                        '    if (other)',
+                        '        next();',
+                        ''
+                    ].join('\n'));
+                } finally {
+                    cancellation.dispose();
+                }
+            });
+
+            const continuedStringFixture = await fs.readFile(
+                path.resolve(
+                    __dirname,
+                    '../../../src/test/fixtures/formatter/continued-string-content.expected.lpc'
+                ),
+                'utf8'
+            );
+            await withLpcDocument(continuedStringFixture, document => {
+                const provider = new LPCDocumentFormattingEditProvider();
+                const cancellation = new vscode.CancellationTokenSource();
+                try {
+                    const edits = provider.provideDocumentRangeFormattingEdits(
+                        document,
+                        new vscode.Range(2, 0, 3, 0),
+                        formattingOptions,
+                        cancellation.token
+                    );
+                    assert.deepStrictEqual(edits, []);
+                } finally {
+                    cancellation.dispose();
+                }
+            });
+
+            const preprocessorRangeFixture = await fs.readFile(
+                path.resolve(
+                    __dirname,
+                    '../../../src/test/fixtures/formatter/range-preprocessor-context.expected.lpc'
+                ),
+                'utf8'
+            ).then(content => content.replace(/\r\n?/g, '\n'));
+            await withLpcDocument(preprocessorRangeFixture, document => {
+                const provider = new LPCDocumentFormattingEditProvider();
+                const cancellation = new vscode.CancellationTokenSource();
+                try {
+                    const edits = provider.provideDocumentRangeFormattingEdits(
+                        document,
+                        new vscode.Range(1, 0, 8, 0),
+                        formattingOptions,
+                        cancellation.token
+                    );
+                    assert.deepStrictEqual(edits, []);
+                } finally {
+                    cancellation.dispose();
+                }
+            });
         }
     },
     {
@@ -262,17 +214,21 @@ const tests: TestCase[] = [
             const functionDefinition = new RegExp(grammar.repository.function_definitions.patterns[0].match);
             assert.ok(operatorReference.test("#'["));
             assert.ok(operatorReference.test("#'[.."));
-            assert.ok(functionDefinition.test('int *query_values('));
-            assert.ok(functionDefinition.test('struct result *query_result('));
+            assert.ok(functionDefinition.test('int *collect_values('));
+            assert.ok(functionDefinition.test('struct result *collect_result('));
         }
     }
 ];
 
 export async function run(): Promise<void> {
+    const allTests: TestCase[] = [
+        ...await loadFormatterFixtureTests(),
+        ...integrationTests
+    ];
     const filter = process.env.LPC_TEST_FILTER?.toLowerCase();
     const selectedTests = filter
-        ? tests.filter(test => test.name.toLowerCase().includes(filter))
-        : tests;
+        ? allTests.filter(test => test.name.toLowerCase().includes(filter))
+        : allTests;
 
     if (selectedTests.length === 0) {
         throw new Error(`No tests matched "${process.env.LPC_TEST_FILTER}".`);

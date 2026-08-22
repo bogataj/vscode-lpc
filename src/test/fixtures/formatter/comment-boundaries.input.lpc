@@ -1,0 +1,12 @@
+void advance() {
+write("comment\
+end"); /* note
+{
+*/
+next();
+if(value) {
+perform(); } /* keep */ next();
+}
+/*
+* note
+*/ int result=call(({ 1 }) ) + value;

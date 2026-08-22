@@ -1,0 +1,9 @@
+void choose(int active) {
+#if FAST_MODE
+    if (active)
+        use_fast();
+#else
+    if (active)
+        use_safe();
+#endif
+}

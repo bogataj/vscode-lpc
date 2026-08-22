@@ -1,0 +1,14 @@
+void select_case(int outer, int inner) {
+    switch (outer) {
+    case 1:
+        switch (inner) {
+        case 2:
+            emit("inner");
+            break;
+        }
+        break;
+    case 3:
+        emit("outer");
+        break;
+    }
+}

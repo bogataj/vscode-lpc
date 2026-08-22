@@ -1,0 +1,14 @@
+void invoke_many() {
+call(
+value,
+
+// argument
+other
+);
+mixed *items = ({
+1,
+
+// element
+2,
+});
+}

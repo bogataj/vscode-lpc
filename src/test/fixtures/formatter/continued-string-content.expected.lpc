@@ -1,0 +1,5 @@
+void emit_text() {
+    write("start\
+({1}) and ({2})\
+end");
+}

@@ -40,7 +40,7 @@ const LPC_TYPE_PATTERN = `${LPC_SIMPLE_TYPE_PATTERN}|struct`;
 const LPC_DECLARATION_TYPE_PATTERN = `(?:${LPC_SIMPLE_TYPE_PATTERN}|struct(?:\\s+[A-Za-z_]\\w*)?)`;
 const LPC_MODIFIER_PATTERN = 'static|private|protected|public|nomask|deprecated|varargs|virtual|nosave';
 const LPC_FUNCTION_DECLARATION_PATTERN = new RegExp(`^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+(?:\\*+\\s*)?\\w+\\s*\\([^)]*\\)\\s*$`);
-const LPC_CAST_SUFFIX_PATTERN = new RegExp(`^(?:${LPC_TYPE_PATTERN})\\s*\\)`);
+const LPC_SPLIT_POINTER_RETURN_PATTERN = new RegExp(`^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+\\*+\\s*$`);
 const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN = new RegExp(`^(?:${LPC_TYPE_PATTERN})\\*?$`);
 class CharacterScanner {
     constructor() {
@@ -85,6 +85,17 @@ class CharacterScanner {
         }
         return { skip: false, skipNext: false };
     }
+    startLine() {
+        this.inLineComment = false;
+    }
+    clone() {
+        const scanner = new CharacterScanner();
+        scanner.inString = this.inString;
+        scanner.inLineComment = this.inLineComment;
+        scanner.inBlockComment = this.inBlockComment;
+        scanner.stringDelimiter = this.stringDelimiter;
+        return scanner;
+    }
     isEscaped(line, index) {
         let backslashCount = 0;
         for (let i = index - 1; i >= 0 && line[i] === '\\'; i--) {
@@ -123,6 +134,9 @@ class LPCDocumentFormattingEditProvider {
             return [];
         }
         const formattingRange = this.expandRangeToFullLines(document, range);
+        if (this.rangeStartsInsideProtectedContext(document, formattingRange.start)) {
+            return [];
+        }
         const text = document.getText(formattingRange);
         const indentSize = this.resolveIndentSize(config.get('indentSize'), options.tabSize);
         const initialIndentLevel = this.getInitialIndentLevel(text, options, indentSize);
@@ -131,6 +145,27 @@ class LPCDocumentFormattingEditProvider {
             return [];
         }
         return [vscode.TextEdit.replace(formattingRange, formattedText)];
+    }
+    rangeStartsInsideProtectedContext(document, start) {
+        if (start.line === 0 && start.character === 0) {
+            return false;
+        }
+        const prefix = document.getText(new vscode.Range(document.positionAt(0), start));
+        const lines = prefix.split(/\r?\n/);
+        const scanner = new CharacterScanner();
+        for (const line of lines) {
+            scanner.startLine();
+            for (let index = 0; index < line.length; index++) {
+                const { skipNext } = scanner.processChar(line, index);
+                if (skipNext) {
+                    index++;
+                }
+            }
+        }
+        const preprocessor = this.analyzePreprocessorLines(lines);
+        return scanner.inString
+            || scanner.inBlockComment
+            || preprocessor.continuationLines[lines.length - 1];
     }
     expandRangeToFullLines(document, range) {
         const start = new vscode.Position(range.start.line, 0);
@@ -149,7 +184,14 @@ class LPCDocumentFormattingEditProvider {
             : Math.max(1, Math.floor(fallback));
     }
     getInitialIndentLevel(code, options, indentSize) {
-        const firstContentLine = code.split(/\r?\n/).find(line => line.trim().length > 0);
+        const lines = code.split(/\r?\n/);
+        const preprocessor = this.analyzePreprocessorLines(lines);
+        const firstContentLine = lines.find((line, index) => {
+            const trimmed = line.trim();
+            return trimmed.length > 0
+                && !preprocessor.continuationLines[index]
+                && !/^#(?!')/.test(trimmed);
+        }) ?? lines.find(line => line.trim().length > 0);
         if (!firstContentLine) {
             return 0;
         }
@@ -175,41 +217,106 @@ class LPCDocumentFormattingEditProvider {
         const indentString = options.insertSpaces
             ? ' '.repeat(indentSize)
             : '\t';
-        let lines = this.preprocessLines(code.split(/\r?\n/));
+        const lines = this.preprocessLines(code.split(/\r?\n/));
+        const unbracedIndentDepths = this.analyzeControlFlow(lines);
+        const preprocessorLineInfo = this.analyzePreprocessorLines(lines);
+        const preprocessorContinuationLines = preprocessorLineInfo.continuationLines;
         let result = [];
         let indentLevel = initialIndentLevel;
         const switchStack = [];
         let previousLineNeedsContinuation = false;
         let previousCurrentIndent = 0;
-        let previousLineHadUnclosedBrackets = false;
-        let inMultiLineControlStatement = false;
         let stringContinuationColumn = -1;
         let lpcStructureIndentStack = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
-        let expectSingleStatementIndent = false;
         let lpcDataStructureDepth = 0;
         const bracketStack = [];
         let preprocessorIndentStack = [];
+        const preprocessorFormatStack = [];
         let inBackslashStringContinuation = false;
+        let inPreprocessorContinuation = false;
+        let pendingForHeader = false;
         for (let i = 0; i < lines.length; i++) {
             if (token?.isCancellationRequested) {
                 return code;
             }
             const line = lines[i];
             const trimmed = line.trim();
+            if (inPreprocessorContinuation) {
+                result.push(line);
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
             // Handle backslash string continuation - preserve original line as-is
             if (inBackslashStringContinuation) {
                 result.push(line);
-                // Check if this line also ends with backslash to continue
-                inBackslashStringContinuation = line.trimEnd().endsWith('\\');
+                const continuedString = this.scanContinuedStringLine(line);
+                const continuationScanner = this.updateBracketStack(continuedString.code, previousCurrentIndent, bracketStack);
+                if (continuationScanner.inBlockComment) {
+                    inBlockComment = true;
+                    blockCommentIndent = previousCurrentIndent;
+                }
+                const structureCounts = this.countBracesAndStructures(continuedString.code, false);
+                indentLevel = Math.max(0, indentLevel + structureCounts.openBraceCount - structureCounts.closeBraceCount);
+                lpcDataStructureDepth = Math.max(0, lpcDataStructureDepth + structureCounts.openingCount - structureCounts.closingCount);
+                for (let count = 0; count < structureCounts.openingCount; count++) {
+                    lpcStructureIndentStack.push(previousCurrentIndent + 1);
+                }
+                for (let count = 0; count < structureCounts.closingCount; count++) {
+                    lpcStructureIndentStack.pop();
+                }
+                const isInsideForHeader = bracketStack.some(bracket => bracket.preservesSemicolons);
+                if (continuedString.code.trimEnd().endsWith(';') && !isInsideForHeader) {
+                    bracketStack.length = 0;
+                    lpcStructureIndentStack.length = 0;
+                }
+                previousLineNeedsContinuation = this.needsContinuation(continuedString.code);
+                inBackslashStringContinuation = continuedString.continues;
                 continue;
+            }
+            const preprocessorDirective = inBlockComment
+                ? undefined
+                : trimmed.match(/^#\s*(if|ifdef|ifndef|elif|else|endif)\b/)?.[1];
+            if (preprocessorDirective === 'if' || preprocessorDirective === 'ifdef'
+                || preprocessorDirective === 'ifndef') {
+                preprocessorFormatStack.push({
+                    previousLineNeedsContinuation,
+                    previousCurrentIndent,
+                    stringContinuationColumn,
+                    lpcDataStructureDepth,
+                    bracketStack: bracketStack.map(bracket => ({ ...bracket })),
+                    lpcStructureIndentStack: [...lpcStructureIndentStack],
+                    switchStack: switchStack.map(context => ({ ...context })),
+                    pendingForHeader
+                });
+            }
+            else if (preprocessorDirective === 'else' || preprocessorDirective === 'elif') {
+                const branchState = preprocessorFormatStack[preprocessorFormatStack.length - 1];
+                if (branchState) {
+                    previousLineNeedsContinuation = branchState.previousLineNeedsContinuation;
+                    previousCurrentIndent = branchState.previousCurrentIndent;
+                    stringContinuationColumn = branchState.stringContinuationColumn;
+                    lpcDataStructureDepth = branchState.lpcDataStructureDepth;
+                    bracketStack.splice(0, bracketStack.length, ...branchState.bracketStack.map(bracket => ({ ...bracket })));
+                    lpcStructureIndentStack.splice(0, lpcStructureIndentStack.length, ...branchState.lpcStructureIndentStack);
+                    switchStack.splice(0, switchStack.length, ...branchState.switchStack.map(context => ({ ...context })));
+                    pendingForHeader = branchState.pendingForHeader;
+                }
+            }
+            let structuralIndent = indentLevel + unbracedIndentDepths[i];
+            let specialIndent = structuralIndent;
+            if (lpcStructureIndentStack.length > 0) {
+                specialIndent = lpcStructureIndentStack[lpcStructureIndentStack.length - 1];
+            }
+            else if (bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(') {
+                specialIndent = bracketStack[bracketStack.length - 1].assignedIndent + 1;
             }
             const specialLineResult = this.handleSpecialLine(trimmed, indentLevel, {
                 inBlockComment,
                 blockCommentIndent,
                 preprocessorIndentStack
-            }, indentString);
+            }, indentString, specialIndent);
             if (specialLineResult.handled) {
                 if (specialLineResult.output !== undefined) {
                     if (Array.isArray(specialLineResult.output)) {
@@ -228,28 +335,24 @@ class LPCDocumentFormattingEditProvider {
                 if (specialLineResult.updateIndentLevel !== undefined) {
                     indentLevel = specialLineResult.updateIndentLevel;
                 }
-                if (specialLineResult.resetFlags) {
-                    previousLineNeedsContinuation = false;
-                    expectSingleStatementIndent = false;
-                    const activeSwitch = switchStack[switchStack.length - 1];
-                    if (activeSwitch) {
-                        activeSwitch.lastLineWasCaseLabel = false;
-                    }
+                if (!inBlockComment && trimmed.startsWith('#') && !trimmed.startsWith("#'")
+                    && this.endsWithLineContinuation(trimmed)) {
+                    inPreprocessorContinuation = true;
                 }
-                if (specialLineResult.clearBracketStack) {
-                    bracketStack.length = 0;
-                    lpcStructureIndentStack.length = 0;
+                if (preprocessorDirective === 'endif') {
+                    preprocessorFormatStack.pop();
                 }
                 continue;
             }
-            let currentIndent = indentLevel;
+            let currentIndent = structuralIndent;
             let leadingCloseBraceHandled = false;
             if (trimmed.startsWith('}') && !trimmed.match(/^}\s*[)\]>]/)) {
                 indentLevel = Math.max(0, indentLevel - 1);
-                currentIndent = indentLevel;
+                structuralIndent = indentLevel + unbracedIndentDepths[i];
+                currentIndent = structuralIndent;
                 leadingCloseBraceHandled = true;
                 while (switchStack.length > 0
-                    && indentLevel <= switchStack[switchStack.length - 1].indentLevel) {
+                    && currentIndent <= switchStack[switchStack.length - 1].indentLevel) {
                     switchStack.pop();
                 }
             }
@@ -261,9 +364,10 @@ class LPCDocumentFormattingEditProvider {
                     currentIndent = indentLevel;
                 }
             }
-            if (trimmed.match(/\bswitch\s*\(/)) {
+            const structuralCode = this.stripCommentsAndStrings(trimmed).trim();
+            if (/\bswitch(?:\s*\(|\s*$)/.test(structuralCode)) {
                 switchStack.push({
-                    indentLevel,
+                    indentLevel: currentIndent,
                     lastLineWasCaseLabel: false,
                     inCaseBody: false
                 });
@@ -273,38 +377,6 @@ class LPCDocumentFormattingEditProvider {
                 currentIndent = activeSwitch.indentLevel;
                 activeSwitch.lastLineWasCaseLabel = true;
                 activeSwitch.inCaseBody = true;
-            }
-            else if (activeSwitch && trimmed === 'break;') {
-                currentIndent = indentLevel;
-                activeSwitch.inCaseBody = false;
-            }
-            else if (activeSwitch && activeSwitch.inCaseBody && !trimmed.match(/^(case\s+|default\s*:)/) && !expectSingleStatementIndent) {
-                currentIndent = indentLevel;
-                activeSwitch.lastLineWasCaseLabel = false;
-            }
-            else if (activeSwitch && activeSwitch.lastLineWasCaseLabel && !trimmed.match(/^(case\s+|default\s*:)/) && !expectSingleStatementIndent) {
-                if (!trimmed.startsWith('//')) {
-                    currentIndent = indentLevel;
-                    activeSwitch.lastLineWasCaseLabel = false;
-                }
-                else {
-                    currentIndent = indentLevel + 1;
-                }
-            }
-            else if (expectSingleStatementIndent) {
-                if (!trimmed.startsWith('{')) {
-                    currentIndent = indentLevel + 1;
-                }
-                const isConditionContinuation = inMultiLineControlStatement && previousLineHadUnclosedBrackets;
-                if (!isConditionContinuation) {
-                    expectSingleStatementIndent = false;
-                    if (inMultiLineControlStatement) {
-                        inMultiLineControlStatement = false;
-                    }
-                }
-                if (activeSwitch) {
-                    activeSwitch.lastLineWasCaseLabel = false;
-                }
             }
             else if (trimmed.startsWith(')')) {
                 let matchingParen = null;
@@ -321,8 +393,15 @@ class LPCDocumentFormattingEditProvider {
                     currentIndent = lpcStructureIndentStack[lpcStructureIndentStack.length - 1];
                 }
                 else {
-                    currentIndent = indentLevel;
+                    currentIndent = structuralIndent;
                 }
+                if (activeSwitch) {
+                    activeSwitch.lastLineWasCaseLabel = false;
+                }
+            }
+            else if (trimmed.startsWith(':)')) {
+                const matchingParen = [...bracketStack].reverse().find(bracket => bracket.char === '(');
+                currentIndent = matchingParen?.assignedIndent ?? structuralIndent;
                 if (activeSwitch) {
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
@@ -336,7 +415,7 @@ class LPCDocumentFormattingEditProvider {
                 }
             }
             else if (trimmed.match(/^(&&|\|\|)/) && lpcDataStructureDepth === 0) {
-                currentIndent = Math.max(indentLevel + 1, previousCurrentIndent);
+                currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
                 if (activeSwitch) {
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
@@ -369,20 +448,20 @@ class LPCDocumentFormattingEditProvider {
                         }
                     }
                     if (columnToUse >= 0) {
-                        currentIndent = indentLevel + 1;
+                        currentIndent = structuralIndent + 1;
                     }
                     else {
-                        currentIndent = Math.max(indentLevel + 1, previousCurrentIndent);
+                        currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
                         stringContinuationColumn = -1;
                     }
                 }
                 else {
                     stringContinuationColumn = -1;
                     if (isNewMappingKey && previousWasMappingValue) {
-                        currentIndent = indentLevel;
+                        currentIndent = structuralIndent;
                     }
                     else {
-                        currentIndent = Math.max(indentLevel + 1, previousCurrentIndent);
+                        currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
                     }
                 }
                 if (activeSwitch) {
@@ -395,20 +474,22 @@ class LPCDocumentFormattingEditProvider {
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
             }
-            else if (bracketStack.length > 0 && !trimmed.match(/^[)}\]>]/)) {
+            else if (bracketStack.length > 0
+                && bracketStack[bracketStack.length - 1].char !== '{'
+                && !trimmed.match(/^[)}\]>]/)) {
                 const matchingParen = bracketStack[bracketStack.length - 1];
-                if (matchingParen.char === '(') {
+                if (matchingParen.char === '(' || matchingParen.char === '[') {
                     currentIndent = matchingParen.assignedIndent + 1;
                 }
                 else {
-                    currentIndent = indentLevel;
+                    currentIndent = structuralIndent;
                 }
                 if (activeSwitch) {
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
             }
-            else if (trimmed.match(/^(&&|\|\|)/)) {
-                currentIndent = indentLevel + 1;
+            else if (this.startsWithContinuationOperator(trimmed)) {
+                currentIndent = structuralIndent + 1;
                 if (activeSwitch) {
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
@@ -416,13 +497,11 @@ class LPCDocumentFormattingEditProvider {
             else if (activeSwitch) {
                 activeSwitch.lastLineWasCaseLabel = false;
             }
-            if (expectSingleStatementIndent &&
-                inMultiLineControlStatement &&
-                !previousLineHadUnclosedBrackets &&
-                currentIndent === indentLevel) {
-                currentIndent = indentLevel + 1;
-                expectSingleStatementIndent = false;
-                inMultiLineControlStatement = false;
+            if (activeSwitch && !trimmed.match(/^(case\s+.*:|default\s*:)/)) {
+                activeSwitch.lastLineWasCaseLabel = false;
+                if (trimmed === 'break;') {
+                    activeSwitch.inCaseBody = false;
+                }
             }
             let spaces = indentString.repeat(currentIndent);
             if (stringContinuationColumn >= 0) {
@@ -440,7 +519,7 @@ class LPCDocumentFormattingEditProvider {
             }
             let normalizedTrimmed = this.normalizeSpacing(codepart);
             const previousLine = i > 0 ? lines[i - 1].trim() : '';
-            const previousHasTernary = previousLine.includes('?');
+            const previousHasTernary = this.stripCommentsAndStrings(previousLine).includes('?');
             const currentStartsWithColon = trimmed.startsWith(':');
             if (previousHasTernary && currentStartsWithColon && result.length > 0) {
                 const prevFullLine = result[result.length - 1];
@@ -453,11 +532,34 @@ class LPCDocumentFormattingEditProvider {
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
             let mergedWithPrevLine = false;
             if (trimmed === '{' && result.length > 0) {
-                const prevLine = result[result.length - 1].trim();
-                const isFunctionDeclaration = LPC_FUNCTION_DECLARATION_PATTERN.test(prevLine);
-                const hasVarargs = /\bvarargs\s+/.test(prevLine);
-                if (isFunctionDeclaration && !hasVarargs) {
-                    result[result.length - 1] = result[result.length - 1] + ' {';
+                const previousSourceLine = this.stripCommentsAndStrings(lines[i - 1] ?? '').trim();
+                const isFunctionDeclaration = LPC_FUNCTION_DECLARATION_PATTERN.test(previousSourceLine);
+                if (!preprocessorContinuationLines[i - 1]
+                    && (isFunctionDeclaration || this.isControlOpeningBrace(lines, i))) {
+                    const previousFormattedLine = result[result.length - 1];
+                    const commentIndex = this.findFirstCommentOutsideStrings(previousFormattedLine);
+                    result[result.length - 1] = commentIndex >= 0
+                        ? previousFormattedLine.substring(0, commentIndex).trimEnd()
+                            + ' { ' + previousFormattedLine.substring(commentIndex).trimStart()
+                        : previousFormattedLine + ' {';
+                    mergedWithPrevLine = true;
+                }
+            }
+            if (!mergedWithPrevLine && /^else\b/.test(finalTrimmed)) {
+                let previousSourceIndex = i - 1;
+                while (previousSourceIndex >= 0 && !lines[previousSourceIndex].trim()) {
+                    previousSourceIndex--;
+                }
+                let previousResultIndex = result.length - 1;
+                while (previousResultIndex >= 0 && result[previousResultIndex] === '') {
+                    previousResultIndex--;
+                }
+                const previousResultLine = result[previousResultIndex];
+                const previousIndent = previousResultLine?.match(/^[\t ]*/)?.[0] ?? '';
+                if (!preprocessorContinuationLines[previousSourceIndex]
+                    && previousResultLine?.trim() === '}' && previousIndent === spaces) {
+                    result.length = previousResultIndex + 1;
+                    result[previousResultIndex] += ' ' + finalTrimmed;
                     mergedWithPrevLine = true;
                 }
             }
@@ -475,85 +577,28 @@ class LPCDocumentFormattingEditProvider {
             if (this.endsWithBackslashInString(trimmed)) {
                 inBackslashStringContinuation = true;
             }
-            const lineScanner = new CharacterScanner();
-            for (let col = 0; col < formattedLine.length; col++) {
-                const { skip, skipNext } = lineScanner.processChar(formattedLine, col);
-                if (skipNext)
-                    col++;
-                if (skip)
-                    continue;
-                const char = formattedLine[col];
-                const nextChar = col + 1 < formattedLine.length ? formattedLine[col + 1] : '';
-                const prevChar = col > 0 ? formattedLine[col - 1] : '';
-                if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
-                    const restOfLine = formattedLine.substring(col + 2);
-                    const isCast = LPC_CAST_SUFFIX_PATTERN.test(restOfLine);
-                    if (isCast) {
-                        bracketStack.push({ char: '(', assignedIndent: currentIndent });
-                        col++;
-                        continue;
-                    }
-                    // For closure arrays ({, push the ( to track nesting depth
-                    bracketStack.push({ char: '(', assignedIndent: currentIndent });
-                    col++; // Skip the {
-                    continue;
-                }
-                if ((char === '}' || char === ']' || char === '>') && (nextChar === ')')) {
-                    // For }), ]), >) LPC structure closers, pop the matching ( that was pushed
-                    if (bracketStack.length > 0) {
-                        const last = bracketStack[bracketStack.length - 1];
-                        if (last.char === '(') {
-                            bracketStack.pop();
-                        }
-                    }
-                    col++; // Skip the )
-                    continue;
-                }
-                if (char === ')' && (prevChar === '}' || prevChar === ']' || prevChar === '>')) {
-                    // Already handled above
-                    continue;
-                }
-                if (char === '[' && col >= 2 && formattedLine[col - 1] === '\'' && formattedLine[col - 2] === '#') {
-                    continue;
-                }
-                if (char === '(' || char === '[' || char === '{') {
-                    bracketStack.push({ char, assignedIndent: currentIndent });
-                }
-                else if (char === ')' || char === ']' || char === '}') {
-                    if (bracketStack.length > 0) {
-                        const last = bracketStack[bracketStack.length - 1];
-                        if ((char === ')' && last.char === '(') ||
-                            (char === ']' && last.char === '[') ||
-                            (char === '}' && last.char === '{')) {
-                            bracketStack.pop();
-                        }
-                    }
-                }
+            if (/^(?:for|foreach)\s*$/.test(structuralCode)) {
+                pendingForHeader = true;
+            }
+            const lineScanner = this.updateBracketStack(formattedLine, currentIndent, bracketStack, pendingForHeader);
+            if (pendingForHeader && structuralCode.includes('(')) {
+                pendingForHeader = false;
             }
             // Propagate block comment state when /* is opened mid-line without closing
             if (lineScanner.inBlockComment) {
                 inBlockComment = true;
                 blockCommentIndent = currentIndent;
             }
-            if (trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/)) {
+            const isInsideForHeader = bracketStack.some(bracket => bracket.preservesSemicolons);
+            if ((trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/)) && !isInsideForHeader) {
                 bracketStack.length = 0;
                 lpcStructureIndentStack.length = 0;
-            }
-            const trimmedWithoutComments = this.stripCommentsAndStrings(trimmed);
-            if (!trimmedWithoutComments.endsWith('{') && this.isControlStatementWithoutBrace(trimmed)) {
-                expectSingleStatementIndent = true;
-                if (this.hasUnclosedBrackets(trimmed)) {
-                    inMultiLineControlStatement = true;
-                }
             }
             const { openBraceCount, closeBraceCount, openingCount, closingCount } = this.countBracesAndStructures(trimmed, leadingCloseBraceHandled);
             const netLPCChange = openingCount - closingCount;
             const netBraces = openBraceCount - closeBraceCount;
             if (netBraces > 0) {
                 indentLevel += netBraces;
-                if (!inMultiLineControlStatement) {
-                    expectSingleStatementIndent = false;
-                }
             }
             if (openingCount > 0) {
                 lpcDataStructureDepth += openingCount;
@@ -564,7 +609,6 @@ class LPCDocumentFormattingEditProvider {
             // Update previous line state AFTER updating lpcDataStructureDepth
             previousCurrentIndent = currentIndent;
             previousLineNeedsContinuation = this.needsContinuation(trimmed);
-            previousLineHadUnclosedBrackets = this.hasUnclosedBrackets(trimmed);
             if (netLPCChange > 0) {
                 const elementIndent = currentIndent + 1;
                 for (let i = 0; i < netLPCChange; i++) {
@@ -584,8 +628,54 @@ class LPCDocumentFormattingEditProvider {
     }
     preprocessLines(lines) {
         const preprocessedLines = [];
-        for (const line of lines) {
-            const trimmed = line.trim();
+        let inBlockComment = false;
+        let inBackslashStringContinuation = false;
+        let inPreprocessorContinuation = false;
+        for (const originalLine of lines) {
+            if (inPreprocessorContinuation) {
+                preprocessedLines.push(originalLine);
+                inPreprocessorContinuation = this.endsWithLineContinuation(originalLine);
+                continue;
+            }
+            if (inBackslashStringContinuation) {
+                preprocessedLines.push(originalLine);
+                const continuedString = this.scanContinuedStringLine(originalLine);
+                inBackslashStringContinuation = continuedString.continues;
+                if (!inBackslashStringContinuation && this.hasUnclosedBlockComment(continuedString.code)) {
+                    inBlockComment = true;
+                }
+                continue;
+            }
+            let line = originalLine;
+            let trimmed = line.trim();
+            if (!inBlockComment && trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
+                preprocessedLines.push(line);
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+            if (inBlockComment) {
+                const endPosition = line.indexOf('*/');
+                if (endPosition < 0) {
+                    preprocessedLines.push(line);
+                    continue;
+                }
+                const trailingCode = line.substring(endPosition + 2).trim();
+                if (!trailingCode) {
+                    preprocessedLines.push(line);
+                    inBlockComment = false;
+                    continue;
+                }
+                const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
+                preprocessedLines.push(line.substring(0, endPosition + 2));
+                line = leadingSpaces + trailingCode;
+                trimmed = line.trim();
+                inBlockComment = false;
+            }
+            const commentPosition = this.findFirstCommentOutsideStrings(trimmed);
+            if (commentPosition >= 0 && trimmed.substring(commentPosition, commentPosition + 2) === '/*'
+                && trimmed.indexOf('*/', commentPosition + 2) < 0) {
+                inBlockComment = true;
+            }
             if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
                 preprocessedLines.push(line);
                 continue;
@@ -602,8 +692,9 @@ class LPCDocumentFormattingEditProvider {
                 const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
                 if (match) {
                     const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
+                    const commentSuffix = commentPos >= 0 ? trimmed.substring(commentPos).trimStart() : '';
                     preprocessedLines.push(leadingSpaces + match[1].trim());
-                    preprocessedLines.push(leadingSpaces + match[2]);
+                    preprocessedLines.push(leadingSpaces + match[2] + (commentSuffix ? ' ' + commentSuffix : ''));
                 }
                 else {
                     preprocessedLines.push(line);
@@ -612,10 +703,527 @@ class LPCDocumentFormattingEditProvider {
             else {
                 preprocessedLines.push(line);
             }
+            inBackslashStringContinuation = this.endsWithBackslashInString(line);
         }
         return preprocessedLines;
     }
-    handleSpecialLine(trimmed, indentLevel, state, indentString = '    ') {
+    analyzeControlFlow(lines, includePreprocessorBodies = true) {
+        const depths = new Array(lines.length).fill(0);
+        const tokens = this.tokenizeStructuralLines(lines);
+        const markLines = (startLine, endLine, depth) => {
+            for (let line = startLine; line <= endLine && line < depths.length; line++) {
+                depths[line] = Math.max(depths[line], depth);
+            }
+        };
+        const findClosingParen = (openIndex) => {
+            if (tokens[openIndex]?.value !== '(') {
+                return openIndex;
+            }
+            let depth = 0;
+            for (let index = openIndex; index < tokens.length; index++) {
+                if (tokens[index].value === '(') {
+                    depth++;
+                }
+                else if (tokens[index].value === ')') {
+                    depth--;
+                    if (depth === 0) {
+                        return index;
+                    }
+                }
+            }
+            return tokens.length - 1;
+        };
+        let parseStatement;
+        let parseSequence;
+        const parseBody = (headerEnd, depth) => {
+            const bodyIndex = headerEnd + 1;
+            if (bodyIndex >= tokens.length) {
+                return bodyIndex;
+            }
+            const headerLine = tokens[headerEnd].line;
+            const bodyLine = tokens[bodyIndex].line;
+            const isBraced = tokens[bodyIndex].value === '{';
+            const bodyDepth = isBraced ? depth : depth + 1;
+            if (!isBraced && bodyLine > headerLine) {
+                markLines(headerLine + 1, bodyLine - 1, bodyDepth);
+            }
+            const nextIndex = parseStatement(bodyIndex, bodyDepth);
+            if (!isBraced && bodyLine === headerLine) {
+                depths[headerLine] = depth;
+            }
+            return nextIndex;
+        };
+        const parseControl = (index, depth) => {
+            const openParen = index + 1;
+            if (tokens[openParen]?.value !== '(') {
+                return index + 1;
+            }
+            const headerEnd = findClosingParen(openParen);
+            markLines(tokens[index].line, tokens[headerEnd].line, depth);
+            let nextIndex = parseBody(headerEnd, depth);
+            if (tokens[index].value !== 'if' || tokens[nextIndex]?.value !== 'else') {
+                return nextIndex;
+            }
+            const elseIndex = nextIndex;
+            const previousLine = tokens[Math.max(headerEnd, elseIndex - 1)].line;
+            markLines(previousLine + 1, tokens[elseIndex].line, depth);
+            depths[tokens[elseIndex].line] = Math.max(depths[tokens[elseIndex].line], depth);
+            nextIndex++;
+            if (tokens[nextIndex]?.value === 'if') {
+                const elseLine = tokens[elseIndex].line;
+                const result = parseStatement(nextIndex, depth);
+                depths[elseLine] = depth;
+                return result;
+            }
+            return parseBody(elseIndex, depth);
+        };
+        parseSequence = (index, depth, stopAtClosingBrace = false) => {
+            while (index < tokens.length) {
+                if (tokens[index].value === '}') {
+                    depths[tokens[index].line] = Math.max(depths[tokens[index].line], depth);
+                    if (stopAtClosingBrace) {
+                        return index + 1;
+                    }
+                    index++;
+                    continue;
+                }
+                const nextIndex = parseStatement(index, depth);
+                index = nextIndex > index ? nextIndex : index + 1;
+            }
+            return index;
+        };
+        parseStatement = (index, depth) => {
+            if (index >= tokens.length) {
+                return index;
+            }
+            const token = tokens[index];
+            if (token.value === '{') {
+                const nextIndex = parseSequence(index + 1, depth, true);
+                const endLine = tokens[Math.max(index, nextIndex - 1)]?.line ?? token.line;
+                markLines(token.line, endLine, depth);
+                return nextIndex;
+            }
+            if (token.value === '}') {
+                return index;
+            }
+            if (token.value === 'if' || token.value === 'for' || token.value === 'foreach'
+                || token.value === 'while' || token.value === 'switch') {
+                return parseControl(index, depth);
+            }
+            if (token.value === 'else') {
+                depths[token.line] = Math.max(depths[token.line], depth);
+                if (tokens[index + 1]?.value === 'if') {
+                    return parseStatement(index + 1, depth);
+                }
+                return parseBody(index, depth);
+            }
+            if (token.value === 'do') {
+                depths[token.line] = Math.max(depths[token.line], depth);
+                let nextIndex = parseBody(index, depth);
+                if (tokens[nextIndex]?.value === 'while' && tokens[nextIndex + 1]?.value === '(') {
+                    const conditionEnd = findClosingParen(nextIndex + 1);
+                    markLines(tokens[nextIndex].line, tokens[conditionEnd].line, depth);
+                    nextIndex = conditionEnd + 1;
+                    if (tokens[nextIndex]?.value === ';') {
+                        nextIndex++;
+                    }
+                }
+                return nextIndex;
+            }
+            if (token.value === 'case' || token.value === 'default') {
+                let parenDepth = 0;
+                let endIndex = index;
+                for (; endIndex < tokens.length; endIndex++) {
+                    if (tokens[endIndex].value === '(') {
+                        parenDepth++;
+                    }
+                    else if (tokens[endIndex].value === ')') {
+                        parenDepth--;
+                    }
+                    else if (tokens[endIndex].value === ':' && parenDepth === 0) {
+                        markLines(token.line, tokens[endIndex].line, depth);
+                        return endIndex + 1;
+                    }
+                }
+                return endIndex;
+            }
+            let parenDepth = 0;
+            let endIndex = index;
+            for (; endIndex < tokens.length; endIndex++) {
+                const current = tokens[endIndex];
+                if (current.value === '(') {
+                    parenDepth++;
+                }
+                else if (current.value === ')') {
+                    parenDepth = Math.max(0, parenDepth - 1);
+                }
+                else if (current.value === '{' && parenDepth === 0) {
+                    markLines(token.line, current.line, depth);
+                    return parseStatement(endIndex, depth);
+                }
+                else if (current.value === ';' && parenDepth === 0) {
+                    markLines(token.line, current.line, depth);
+                    return endIndex + 1;
+                }
+                else if (current.value === '}' && parenDepth === 0) {
+                    const previousLine = tokens[Math.max(index, endIndex - 1)].line;
+                    markLines(token.line, previousLine, depth);
+                    return endIndex;
+                }
+            }
+            if (tokens.length > 0) {
+                markLines(token.line, tokens[tokens.length - 1].line, depth);
+            }
+            return endIndex;
+        };
+        parseSequence(0, 0);
+        if (includePreprocessorBodies) {
+            this.applyPreprocessorControlDepths(lines, depths);
+        }
+        return depths;
+    }
+    applyPreprocessorControlDepths(lines, depths) {
+        const preprocessor = this.analyzePreprocessorLines(lines);
+        const continuationLines = preprocessor.continuationLines;
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            if (continuationLines[lineIndex]) {
+                continue;
+            }
+            const openingDirective = preprocessor.directives[lineIndex];
+            if (openingDirective !== 'if' && openingDirective !== 'ifdef'
+                && openingDirective !== 'ifndef') {
+                continue;
+            }
+            const precedingTokens = this.tokenizeStructuralLines(lines.slice(0, lineIndex));
+            const headerEnd = precedingTokens[precedingTokens.length - 1]?.line ?? -1;
+            if (continuationLines[headerEnd]) {
+                continue;
+            }
+            const isControlBody = this.isControlHeaderEndingAt(lines, headerEnd);
+            const branches = [];
+            let branchStart = lineIndex + 1;
+            let conditionalDepth = 0;
+            let closingDirective = -1;
+            for (let cursor = lineIndex; cursor < lines.length; cursor++) {
+                const directive = preprocessor.directives[cursor];
+                if (directive === 'if' || directive === 'ifdef' || directive === 'ifndef') {
+                    conditionalDepth++;
+                }
+                else if (directive === 'endif') {
+                    conditionalDepth--;
+                    if (conditionalDepth === 0) {
+                        branches.push({ start: branchStart, end: cursor });
+                        closingDirective = cursor;
+                        break;
+                    }
+                }
+                else if ((directive === 'else' || directive === 'elif') && conditionalDepth === 1) {
+                    branches.push({ start: branchStart, end: cursor });
+                    branchStart = cursor + 1;
+                }
+            }
+            if (closingDirective < 0) {
+                continue;
+            }
+            const parentDepth = isControlBody ? depths[headerEnd] : depths[lineIndex];
+            const pendingHeaders = [];
+            const analyzedBranches = [];
+            let allBranchesAnalyzable = true;
+            for (const branch of branches) {
+                const branchLines = lines.slice(branch.start, branch.end);
+                const structuralBranchLines = branchLines.map((line, offset) => continuationLines[branch.start + offset] ? '' : line);
+                const branchTokens = this.tokenizeStructuralLines(structuralBranchLines);
+                if (branchTokens.length === 0) {
+                    allBranchesAnalyzable = false;
+                    continue;
+                }
+                const branchVariants = this.expandPreprocessorVariants(structuralBranchLines);
+                if (branchVariants.length === 0) {
+                    allBranchesAnalyzable = false;
+                }
+                else {
+                    analyzedBranches.push(...branchVariants);
+                }
+                const bodyDepth = parentDepth
+                    + (isControlBody && branchTokens[0].value !== '{' ? 1 : 0);
+                const branchDepths = this.analyzeControlFlow(structuralBranchLines, false);
+                for (let offset = 0; offset < branchLines.length; offset++) {
+                    if (!continuationLines[branch.start + offset]) {
+                        depths[branch.start + offset] = bodyDepth + branchDepths[offset];
+                    }
+                }
+                const lastTokenLine = branchTokens[branchTokens.length - 1].line;
+                const headerStart = this.findControlHeaderStart(structuralBranchLines, lastTokenLine);
+                if (headerStart >= 0) {
+                    pendingHeaders.push({
+                        lines: structuralBranchLines.slice(headerStart, lastTokenLine + 1),
+                        depth: bodyDepth + branchDepths[lastTokenLine]
+                    });
+                }
+            }
+            if (pendingHeaders.length === branches.length && pendingHeaders.length > 0) {
+                const pendingHeader = pendingHeaders.reduce((shallowest, current) => current.depth < shallowest.depth ? current : shallowest);
+                const tailLines = lines.slice(closingDirective + 1);
+                const syntheticLines = [...pendingHeader.lines, ...tailLines];
+                const statementEnd = this.findFirstStatementEndLine(syntheticLines);
+                const syntheticDepths = this.analyzeControlFlow(syntheticLines, false);
+                for (let syntheticLine = pendingHeader.lines.length; syntheticLine <= statementEnd; syntheticLine++) {
+                    const sourceLine = closingDirective + 1
+                        + syntheticLine - pendingHeader.lines.length;
+                    if (sourceLine < lines.length) {
+                        depths[sourceLine] = pendingHeader.depth + syntheticDepths[syntheticLine];
+                    }
+                }
+            }
+            const enclosingHeaderStart = isControlBody
+                ? this.findControlHeaderStart(lines, headerEnd)
+                : -1;
+            const enclosingHeaderLines = enclosingHeaderStart >= 0
+                ? lines.slice(enclosingHeaderStart, headerEnd + 1)
+                : [];
+            const tailLines = lines.slice(closingDirective + 1);
+            const tailTokens = this.tokenizeStructuralLines(tailLines);
+            const enclosingTokens = this.tokenizeStructuralLines(enclosingHeaderLines);
+            const hasEnclosingIf = enclosingTokens[0]?.value === 'if'
+                || (enclosingTokens[0]?.value === 'else' && enclosingTokens[1]?.value === 'if');
+            if (allBranchesAnalyzable && analyzedBranches.length > 0
+                && tailTokens[0]?.value === 'else'
+                && hasEnclosingIf) {
+                const tailDepthsByBranch = analyzedBranches.map(branchLines => {
+                    const syntheticLines = [...enclosingHeaderLines, ...branchLines, ...tailLines];
+                    const statementEnd = this.findFirstStatementEndLine(syntheticLines);
+                    const syntheticDepths = this.analyzeControlFlow(syntheticLines, false);
+                    const tailStart = enclosingHeaderLines.length + branchLines.length;
+                    return tailLines.map((_line, offset) => {
+                        const syntheticLine = tailStart + offset;
+                        return syntheticLine <= statementEnd
+                            ? syntheticDepths[syntheticLine]
+                            : undefined;
+                    });
+                });
+                for (let offset = 0; offset < tailLines.length; offset++) {
+                    const branchDepths = tailDepthsByBranch.map(branchDepths => branchDepths[offset]);
+                    const commonDepth = branchDepths[0];
+                    if (commonDepth !== undefined
+                        && branchDepths.every(branchDepth => branchDepth === commonDepth)) {
+                        depths[closingDirective + 1 + offset] = parentDepth + commonDepth;
+                    }
+                }
+            }
+        }
+    }
+    analyzePreprocessorLines(lines) {
+        const continuationLines = new Array(lines.length).fill(false);
+        const directives = new Array(lines.length).fill(undefined);
+        let inDirectiveContinuation = false;
+        let inBlockComment = false;
+        let inContinuedString = false;
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            continuationLines[lineIndex] = inDirectiveContinuation;
+            if (inDirectiveContinuation) {
+                inDirectiveContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+            if (inContinuedString) {
+                const continuedString = this.scanContinuedStringLine(line);
+                inContinuedString = continuedString.continues;
+                if (!inContinuedString && this.hasUnclosedBlockComment(continuedString.code)) {
+                    inBlockComment = true;
+                }
+                continue;
+            }
+            if (inBlockComment) {
+                const endPosition = line.indexOf('*/');
+                if (endPosition < 0) {
+                    continue;
+                }
+                inBlockComment = false;
+            }
+            const trimmed = line.trimStart();
+            if (/^#(?!')/.test(trimmed)) {
+                const directive = trimmed.match(/^#\s*(if|ifdef|ifndef|elif|else|endif)\b/)?.[1];
+                directives[lineIndex] = directive;
+                inDirectiveContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+            const commentPosition = this.findFirstCommentOutsideStrings(line);
+            if (commentPosition >= 0 && line.substring(commentPosition, commentPosition + 2) === '/*'
+                && line.indexOf('*/', commentPosition + 2) < 0) {
+                inBlockComment = true;
+            }
+            inContinuedString = this.endsWithBackslashInString(line);
+        }
+        return { continuationLines, directives };
+    }
+    expandPreprocessorVariants(lines, maxVariants = 32) {
+        const preprocessor = this.analyzePreprocessorLines(lines);
+        const isOpeningDirective = (directive) => directive === 'if' || directive === 'ifdef' || directive === 'ifndef';
+        const sanitizeRange = (start, end) => lines.slice(start, end).map((line, offset) => preprocessor.continuationLines[start + offset] ? '' : line);
+        const expandRange = (start, end) => {
+            let opening = -1;
+            for (let lineIndex = start; lineIndex < end; lineIndex++) {
+                if (isOpeningDirective(preprocessor.directives[lineIndex])) {
+                    opening = lineIndex;
+                    break;
+                }
+            }
+            if (opening < 0) {
+                return [sanitizeRange(start, end)];
+            }
+            const branches = [];
+            let branchStart = opening + 1;
+            let depth = 0;
+            let closing = -1;
+            let hasElseBranch = false;
+            for (let lineIndex = opening; lineIndex < end; lineIndex++) {
+                const directive = preprocessor.directives[lineIndex];
+                if (isOpeningDirective(directive)) {
+                    depth++;
+                }
+                else if (directive === 'endif') {
+                    depth--;
+                    if (depth === 0) {
+                        branches.push({ start: branchStart, end: lineIndex });
+                        closing = lineIndex;
+                        break;
+                    }
+                }
+                else if ((directive === 'elif' || directive === 'else') && depth === 1) {
+                    branches.push({ start: branchStart, end: lineIndex });
+                    branchStart = lineIndex + 1;
+                    hasElseBranch || (hasElseBranch = directive === 'else');
+                }
+            }
+            if (closing < 0) {
+                return [sanitizeRange(start, end)];
+            }
+            const branchVariants = [];
+            for (const branch of branches) {
+                const variants = expandRange(branch.start, branch.end);
+                if (variants.length === 0) {
+                    return [];
+                }
+                for (const variant of variants) {
+                    branchVariants.push({ start: branch.start, lines: variant });
+                    if (branchVariants.length > maxVariants) {
+                        return [];
+                    }
+                }
+            }
+            if (!hasElseBranch) {
+                branchVariants.push({ start: opening + 1, lines: [] });
+            }
+            const suffixVariants = expandRange(closing + 1, end);
+            if (suffixVariants.length === 0) {
+                return [];
+            }
+            const prefix = sanitizeRange(start, opening);
+            const variants = [];
+            for (const branch of branchVariants) {
+                for (const suffix of suffixVariants) {
+                    const variant = new Array(end - start).fill('');
+                    prefix.forEach((line, offset) => {
+                        variant[offset] = line;
+                    });
+                    branch.lines.forEach((line, offset) => {
+                        variant[branch.start - start + offset] = line;
+                    });
+                    suffix.forEach((line, offset) => {
+                        variant[closing + 1 - start + offset] = line;
+                    });
+                    variants.push(variant);
+                    if (variants.length > maxVariants) {
+                        return [];
+                    }
+                }
+            }
+            return variants;
+        };
+        return expandRange(0, lines.length);
+    }
+    tokenizeStructuralLines(lines) {
+        const tokens = [];
+        let inBlockComment = false;
+        let inContinuedString = false;
+        let inPreprocessorContinuation = false;
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            const trimmed = line.trimStart();
+            if (inPreprocessorContinuation) {
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+            if (!inBlockComment && !inContinuedString
+                && trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+            let inString = inContinuedString;
+            let stringDelimiter = inContinuedString ? '"' : null;
+            let escaped = false;
+            for (let index = 0; index < line.length; index++) {
+                const char = line[index];
+                const nextChar = index + 1 < line.length ? line[index + 1] : '';
+                if (inBlockComment) {
+                    if (char === '*' && nextChar === '/') {
+                        inBlockComment = false;
+                        index++;
+                    }
+                    continue;
+                }
+                if (inString) {
+                    if (escaped) {
+                        escaped = false;
+                    }
+                    else if (char === '\\') {
+                        escaped = true;
+                    }
+                    else if (char === stringDelimiter) {
+                        inString = false;
+                        stringDelimiter = null;
+                    }
+                    continue;
+                }
+                if (char === '/' && nextChar === '/') {
+                    break;
+                }
+                if (char === '/' && nextChar === '*') {
+                    inBlockComment = true;
+                    index++;
+                    continue;
+                }
+                if (char === '"') {
+                    inString = true;
+                    stringDelimiter = '"';
+                    continue;
+                }
+                if (char === "'" && this.isCharacterLiteralAt(line, index)) {
+                    inString = true;
+                    stringDelimiter = "'";
+                    continue;
+                }
+                if (/[A-Za-z_]/.test(char)) {
+                    let end = index + 1;
+                    while (end < line.length && /\w/.test(line[end])) {
+                        end++;
+                    }
+                    tokens.push({ value: line.substring(index, end), line: lineIndex });
+                    index = end - 1;
+                    continue;
+                }
+                if ('(){};:'.includes(char)) {
+                    if (char === '}' && nextChar === ')') {
+                        continue;
+                    }
+                    tokens.push({ value: char, line: lineIndex });
+                }
+            }
+            inContinuedString = inString && stringDelimiter === '"' && this.endsWithLineContinuation(line);
+        }
+        return tokens;
+    }
+    handleSpecialLine(trimmed, indentLevel, state, indentString = '    ', contentIndentLevel = indentLevel) {
         if (!state.inBlockComment && trimmed.includes('/*')) {
             const startPos = trimmed.indexOf('/*');
             // Don't treat /* inside strings as block comments
@@ -628,15 +1236,22 @@ class LPCDocumentFormattingEditProvider {
                 return { handled: false };
             }
             const endPos = trimmed.indexOf('*/', startPos + 2);
+            if (endPos >= 0 && trimmed.lastIndexOf('*/') === trimmed.length - 2) {
+                const spaces = indentString.repeat(contentIndentLevel);
+                return {
+                    handled: true,
+                    output: spaces + trimmed
+                };
+            }
             if (endPos === -1) {
-                const spaces = indentString.repeat(indentLevel);
+                const spaces = indentString.repeat(contentIndentLevel);
                 const afterComment = trimmed.substring(startPos + 2).trim();
                 if (afterComment.length > 0) {
                     return {
                         handled: true,
                         output: [spaces + '/*', spaces + ' * ' + afterComment],
                         inBlockComment: true,
-                        blockCommentIndent: indentLevel
+                        blockCommentIndent: contentIndentLevel
                     };
                 }
                 else {
@@ -644,7 +1259,7 @@ class LPCDocumentFormattingEditProvider {
                         handled: true,
                         output: spaces + '/*',
                         inBlockComment: true,
-                        blockCommentIndent: indentLevel
+                        blockCommentIndent: contentIndentLevel
                     };
                 }
             }
@@ -669,24 +1284,20 @@ class LPCDocumentFormattingEditProvider {
             return {
                 handled: true,
                 output: spaces + formattedComment,
-                inBlockComment: !isClosing,
-                resetFlags: isClosing
+                inBlockComment: !isClosing
             };
         }
         if (trimmed.startsWith('//')) {
-            const spaces = indentString.repeat(indentLevel);
+            const spaces = indentString.repeat(contentIndentLevel);
             return {
                 handled: true,
-                output: spaces + trimmed,
-                resetFlags: true
+                output: spaces + trimmed
             };
         }
         if (!trimmed) {
             return {
                 handled: true,
-                output: '',
-                resetFlags: true,
-                clearBracketStack: true
+                output: ''
             };
         }
         if (trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
@@ -707,14 +1318,20 @@ class LPCDocumentFormattingEditProvider {
             return {
                 handled: true,
                 output: trimmed,
-                updateIndentLevel: newIndentLevel,
-                resetFlags: true
+                updateIndentLevel: newIndentLevel
             };
         }
         return { handled: false };
     }
     normalizeSpacing(code) {
         let normalized = this.replaceOutsideProtectedText(code, /,\s{2,}/g, ', ');
+        normalized = this.replaceOutsideProtectedText(normalized, /\b([A-Za-z_]\w*)\s+\(/g, (_match, identifier) => /^(?:if|for|foreach|while|switch|return)$/.test(identifier)
+            ? `${identifier} (`
+            : `${identifier}(`);
+        normalized = this.replaceOutsideProtectedText(normalized, /\b(if|for|foreach|while|switch)\s*\(/g, '$1 (');
+        normalized = this.replaceOutsideProtectedText(normalized, /\s*->\s*/g, '->');
+        normalized = this.replaceOutsideProtectedText(normalized, /\(\s+(?!\(\{)/g, '(');
+        normalized = this.replaceOutsideProtectedText(normalized, new RegExp(`\\((${LPC_DECLARATION_TYPE_PATTERN})(\\s*\\*)?\\)\\s+([A-Za-z_(])`, 'g'), '($1$2)$3');
         // Remove extra spaces before closing parens, semicolons, braces
         normalized = this.replaceOutsideProtectedText(normalized, /\s{2,}([);{])/g, ' $1');
         normalized = this.replaceOutsideProtectedText(normalized, /\s+;/g, ';');
@@ -723,9 +1340,8 @@ class LPCDocumentFormattingEditProvider {
             /\}\)\s*\)\s*\)/.test(structuralCode) ||
             /\}\)\s*\)\s*;/.test(structuralCode);
         if (!hasMultipleClosingParens && (structuralCode.match(/\}\s*\)/g) || []).length < 2) {
-            normalized = this.replaceOutsideProtectedText(normalized, /\}\)\s+\)/g, '})');
+            normalized = this.replaceOutsideProtectedText(normalized, /\}\)\s+\)/g, '}))');
         }
-        normalized = this.replaceOutsideProtectedText(normalized, /\(\s+(?!\(\{)/g, '(');
         normalized = this.replaceOutsideProtectedText(normalized, new RegExp(`\\b(${LPC_TYPE_PATTERN})\\s{2,}`, 'g'), '$1 ');
         normalized = this.replaceOutsideProtectedText(normalized, /\bcase\s{2,}/g, 'case ');
         normalized = this.replaceOutsideProtectedText(normalized, /\bcase\s+(.+?)\s+:/g, 'case $1:');
@@ -752,6 +1368,144 @@ class LPCDocumentFormattingEditProvider {
         });
         return normalized;
     }
+    isControlOpeningBrace(lines, braceLine) {
+        if (braceLine <= 0 || lines[braceLine - 1].trim().length === 0) {
+            return false;
+        }
+        const previousLine = this.stripCommentsAndStrings(lines[braceLine - 1]).trim();
+        if (previousLine === 'else' || previousLine === 'do') {
+            return true;
+        }
+        return this.isControlHeaderEndingAt(lines, braceLine - 1);
+    }
+    findFirstStatementEndLine(lines) {
+        const tokens = this.tokenizeStructuralLines(lines);
+        if (tokens.length === 0) {
+            return -1;
+        }
+        const findClosingParen = (openIndex) => {
+            let depth = 0;
+            for (let index = openIndex; index < tokens.length; index++) {
+                if (tokens[index].value === '(') {
+                    depth++;
+                }
+                else if (tokens[index].value === ')' && --depth === 0) {
+                    return index;
+                }
+            }
+            return tokens.length - 1;
+        };
+        const skipBlock = (openIndex) => {
+            let depth = 0;
+            for (let index = openIndex; index < tokens.length; index++) {
+                if (tokens[index].value === '{') {
+                    depth++;
+                }
+                else if (tokens[index].value === '}' && --depth === 0) {
+                    return index + 1;
+                }
+            }
+            return tokens.length;
+        };
+        let skipStatement;
+        const skipBody = (headerEnd) => {
+            return headerEnd + 1 < tokens.length
+                ? skipStatement(headerEnd + 1)
+                : headerEnd + 1;
+        };
+        skipStatement = (index) => {
+            if (index >= tokens.length) {
+                return index;
+            }
+            const token = tokens[index].value;
+            if (token === '{') {
+                return skipBlock(index);
+            }
+            if ((token === 'if' || token === 'for' || token === 'foreach'
+                || token === 'while' || token === 'switch')
+                && tokens[index + 1]?.value === '(') {
+                const conditionEnd = findClosingParen(index + 1);
+                let nextIndex = skipBody(conditionEnd);
+                if (token === 'if' && tokens[nextIndex]?.value === 'else') {
+                    nextIndex = skipBody(nextIndex);
+                }
+                return nextIndex;
+            }
+            if (token === 'do') {
+                let nextIndex = skipBody(index);
+                if (tokens[nextIndex]?.value === 'while' && tokens[nextIndex + 1]?.value === '(') {
+                    nextIndex = findClosingParen(nextIndex + 1) + 1;
+                    if (tokens[nextIndex]?.value === ';') {
+                        nextIndex++;
+                    }
+                }
+                return nextIndex;
+            }
+            if (token === 'else') {
+                return skipBody(index);
+            }
+            let parenDepth = 0;
+            for (let cursor = index; cursor < tokens.length; cursor++) {
+                if (tokens[cursor].value === '(') {
+                    parenDepth++;
+                }
+                else if (tokens[cursor].value === ')') {
+                    parenDepth = Math.max(0, parenDepth - 1);
+                }
+                else if (tokens[cursor].value === '{' && parenDepth === 0) {
+                    return skipBlock(cursor);
+                }
+                else if (tokens[cursor].value === ';' && parenDepth === 0) {
+                    return cursor + 1;
+                }
+                else if (tokens[cursor].value === '}' && parenDepth === 0) {
+                    return cursor;
+                }
+            }
+            return tokens.length;
+        };
+        const nextIndex = skipStatement(0);
+        return tokens[Math.max(0, Math.min(tokens.length - 1, nextIndex - 1))].line;
+    }
+    isControlHeaderEndingAt(lines, endLine) {
+        return this.findControlHeaderStart(lines, endLine) >= 0;
+    }
+    findControlHeaderStart(lines, endLine) {
+        if (endLine < 0) {
+            return -1;
+        }
+        const tokens = this.tokenizeStructuralLines(lines.slice(0, endLine + 1));
+        const lastTokenIndex = tokens.length - 1;
+        if (lastTokenIndex < 0) {
+            return -1;
+        }
+        if (tokens[lastTokenIndex].line !== endLine) {
+            return -1;
+        }
+        if (tokens[lastTokenIndex].value === 'do') {
+            return tokens[lastTokenIndex].line;
+        }
+        if (tokens[lastTokenIndex].value !== ')') {
+            return -1;
+        }
+        let balance = 0;
+        for (let tokenIndex = lastTokenIndex; tokenIndex >= 0; tokenIndex--) {
+            const value = tokens[tokenIndex].value;
+            if (value === ')') {
+                balance++;
+            }
+            else if (value === '(' && --balance === 0) {
+                const controlIndex = tokenIndex - 1;
+                const control = tokens[controlIndex];
+                if (!control || !/^(?:if|for|foreach|while|switch)$/.test(control.value)) {
+                    return -1;
+                }
+                const elseToken = control.value === 'if' ? tokens[controlIndex - 1] : undefined;
+                return elseToken?.value === 'else' ? elseToken.line : control.line;
+            }
+        }
+        return -1;
+    }
     alignInlineComment(normalizedCode, commentPart) {
         if (!commentPart) {
             return normalizedCode;
@@ -767,6 +1521,62 @@ class LPCDocumentFormattingEditProvider {
         const targetPosition = indent + targetColumn;
         const spacesNeeded = Math.max(minSpacing, targetPosition - normalizedCode.length);
         return normalizedCode + ' '.repeat(spacesNeeded) + commentPart.trim();
+    }
+    updateBracketStack(line, currentIndent, bracketStack, preserveFirstParen = false) {
+        const scanner = new CharacterScanner();
+        for (let column = 0; column < line.length; column++) {
+            const { skip, skipNext } = scanner.processChar(line, column);
+            if (skipNext) {
+                column++;
+            }
+            if (skip) {
+                continue;
+            }
+            const char = line[column];
+            const nextChar = column + 1 < line.length ? line[column + 1] : '';
+            const previousChar = column > 0 ? line[column - 1] : '';
+            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
+                bracketStack.push({ char: '(', assignedIndent: currentIndent });
+                column++;
+                continue;
+            }
+            if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
+                if (bracketStack[bracketStack.length - 1]?.char === '(') {
+                    bracketStack.pop();
+                }
+                column++;
+                continue;
+            }
+            if (char === ')' && (previousChar === '}' || previousChar === ']' || previousChar === '>')) {
+                continue;
+            }
+            if (char === '[' && column >= 2 && line[column - 1] === '\'' && line[column - 2] === '#') {
+                continue;
+            }
+            if (char === '(' || char === '[' || char === '{') {
+                const prefix = char === '('
+                    ? this.stripCommentsAndStrings(line.substring(0, column)).trim()
+                    : '';
+                bracketStack.push({
+                    char,
+                    assignedIndent: currentIndent,
+                    preservesSemicolons: char === '('
+                        && (preserveFirstParen || /^(?:for|foreach)\s*$/.test(prefix))
+                });
+                if (char === '(') {
+                    preserveFirstParen = false;
+                }
+            }
+            else if (char === ')' || char === ']' || char === '}') {
+                const last = bracketStack[bracketStack.length - 1];
+                if (last && ((char === ')' && last.char === '(')
+                    || (char === ']' && last.char === '[')
+                    || (char === '}' && last.char === '{'))) {
+                    bracketStack.pop();
+                }
+            }
+        }
+        return scanner;
     }
     countBracesAndStructures(trimmed, leadingCloseBraceHandled) {
         let openBraceCount = 0;
@@ -879,9 +1689,65 @@ class LPCDocumentFormattingEditProvider {
         }
         return false;
     }
-    computeProtectedMask(line) {
-        const mask = new Array(line.length).fill(false);
+    endsWithLineContinuation(line) {
+        const trimmed = line.trimEnd();
+        let backslashCount = 0;
+        for (let index = trimmed.length - 1; index >= 0 && trimmed[index] === '\\'; index--) {
+            backslashCount++;
+        }
+        return backslashCount % 2 === 1;
+    }
+    scanContinuedStringLine(line) {
+        let code = '';
+        let inString = true;
+        let escaped = false;
+        for (let index = 0; index < line.length; index++) {
+            const char = line[index];
+            if (inString) {
+                code += ' ';
+                if (escaped) {
+                    escaped = false;
+                }
+                else if (char === '\\') {
+                    escaped = true;
+                }
+                else if (char === '"') {
+                    inString = false;
+                }
+            }
+            else if (char === '"') {
+                code += ' ';
+                inString = true;
+                escaped = false;
+            }
+            else {
+                code += char;
+            }
+        }
+        return {
+            code,
+            continues: inString && this.endsWithLineContinuation(line)
+        };
+    }
+    hasUnclosedBlockComment(line) {
         const scanner = new CharacterScanner();
+        for (let index = 0; index < line.length; index++) {
+            const { skipNext } = scanner.processChar(line, index);
+            if (skipNext) {
+                index++;
+            }
+        }
+        return scanner.inBlockComment;
+    }
+    isCharacterLiteralAt(line, index) {
+        if (line[index + 1] === '\\') {
+            return index + 3 < line.length && line[index + 3] === "'";
+        }
+        return index + 2 < line.length && line[index + 2] === "'";
+    }
+    computeProtectedMask(line, scanner = new CharacterScanner()) {
+        const mask = new Array(line.length).fill(false);
+        scanner.startLine();
         for (let i = 0; i < line.length; i++) {
             const { skip, skipNext } = scanner.processChar(line, i);
             if (skip) {
@@ -935,7 +1801,9 @@ class LPCDocumentFormattingEditProvider {
     }
     postProcessMultiLinePatterns(lines) {
         const processed = [];
-        let insideLambda = 0;
+        let lambdaParenDepth = 0;
+        let inPreprocessorContinuation = false;
+        const analysisScanner = new CharacterScanner();
         const isClosureContent = (content) => {
             const trimmedContent = content.trim();
             if (trimmedContent.includes("#'") || trimmedContent.match(/'\w+/) || trimmedContent.includes('lambda')) {
@@ -945,38 +1813,39 @@ class LPCDocumentFormattingEditProvider {
         };
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i];
-            let analysisLine = this.stripCommentsAndStrings(line);
-            let trimmed = analysisLine.trim();
-            if (trimmed.includes('lambda(')) {
-                insideLambda++;
-            }
-            if (i > 0) {
-                const prevIdx = processed.length - 1;
-                const prevLine = processed[prevIdx];
-                const previousAnalysis = this.stripCommentsAndStrings(prevLine);
-                const prevTrimmed = previousAnalysis.trim();
-                if (prevTrimmed.endsWith(',') && (trimmed === '])' || trimmed === '})' || trimmed.startsWith('])') || trimmed.startsWith('})'))) {
-                    const commaIndex = previousAnalysis.lastIndexOf(',');
-                    processed[prevIdx] = prevLine.substring(0, commaIndex) + prevLine.substring(commaIndex + 1);
-                }
-            }
-            const lambdaEndPattern = trimmed.match(/\)\s*\)\s*;?\s*$/);
-            if (insideLambda > 0) {
+            const lineStartScanner = analysisScanner.clone();
+            if (inPreprocessorContinuation) {
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
                 processed.push(line);
-                if (lambdaEndPattern) {
-                    insideLambda--;
+                continue;
+            }
+            if (!lineStartScanner.inString && !lineStartScanner.inBlockComment
+                && /^#(?!')/.test(line.trimStart())) {
+                inPreprocessorContinuation = this.endsWithLineContinuation(line);
+                processed.push(line);
+                continue;
+            }
+            const analysisLine = this.stripCommentsAndStringsWithScanner(line, analysisScanner);
+            const lambdaIndex = analysisLine.indexOf('lambda(');
+            if (lambdaParenDepth > 0 || lambdaIndex >= 0) {
+                const lambdaText = lambdaParenDepth > 0
+                    ? analysisLine
+                    : analysisLine.substring(lambdaIndex + 'lambda'.length);
+                lambdaParenDepth += this.countParenthesisDelta(lambdaText);
+                processed.push(line);
+                if (lambdaParenDepth < 0) {
+                    lambdaParenDepth = 0;
                 }
                 continue;
             }
-            const typedClosureMask = this.computeProtectedMask(line);
+            const typedClosureMask = this.computeProtectedMask(line, lineStartScanner.clone());
             line = line.replace(new RegExp(`\\(\\{\\s*(${LPC_TYPE_PATTERN})(\\*?)\\s*\\}\\)`, 'g'), (match, type, star, offset) => {
                 return this.rangeTouchesProtectedText(typedClosureMask, offset, match.length)
                     ? match
                     : `({${type}${star}})`;
             });
-            analysisLine = this.stripCommentsAndStrings(line);
-            trimmed = analysisLine.trim();
-            const protectedMask = this.computeProtectedMask(line);
+            const trimmed = analysisLine.trim();
+            const protectedMask = this.computeProtectedMask(line, lineStartScanner);
             const closureEndCount = (analysisLine.match(/\}\s*\)/g) || []).length;
             const hasMultipleClosures = closureEndCount >= 2;
             const hasClosureIndicators = analysisLine.includes('#\'') || trimmed.startsWith('({#\'');
@@ -1023,27 +1892,53 @@ class LPCDocumentFormattingEditProvider {
         }
         return processed;
     }
+    countParenthesisDelta(line) {
+        let delta = 0;
+        for (const char of line) {
+            if (char === '(') {
+                delta++;
+            }
+            else if (char === ')') {
+                delta--;
+            }
+        }
+        return delta;
+    }
     needsContinuation(line) {
         const trimmedLine = this.stripCommentsAndStrings(line).trimEnd();
+        if (/^\s*(?:\/\/|\/\*)/.test(line) && trimmedLine.length === 0) {
+            return false;
+        }
         if (trimmedLine.endsWith('{')) {
             return false;
         }
         if (trimmedLine.endsWith(';')) {
             return false;
         }
+        if (LPC_SPLIT_POINTER_RETURN_PATTERN.test(trimmedLine)) {
+            return false;
+        }
         if (this.hasUnclosedBrackets(trimmedLine)) {
             return true;
         }
-        if (trimmedLine.match(/(\|\||&&)\s*$/)) {
+        const castAtEnd = new RegExp(`\\((?:${LPC_DECLARATION_TYPE_PATTERN})\\s*\\*?\\)\\s*$`);
+        if (castAtEnd.test(trimmedLine)) {
             return true;
         }
-        if (trimmedLine.match(/[+\-*/%]\s*$/) && !trimmedLine.match(/^\s*(case\s+|default\s*:)/)) {
+        if (/(?:\+\+|--)\s*$/.test(trimmedLine)) {
+            return false;
+        }
+        if (/(?:->|&&|\|\||==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[=+\-*/%&|^<>?:])\s*$/.test(trimmedLine)
+            && !trimmedLine.match(/^\s*(case\s+|default\s*:)/)) {
             return true;
         }
         if (trimmedLine.endsWith(',')) {
             return true;
         }
         return false;
+    }
+    startsWithContinuationOperator(line) {
+        return /^(?:&&|\|\||->|==|!=|<=|>=|<<|>>|\+(?!\+)|\/(?![/*])|[%&|^?]|:(?!:))/.test(line);
     }
     hasUnclosedBrackets(line) {
         let parens = 0, brackets = 0, braces = 0;
@@ -1085,8 +1980,11 @@ class LPCDocumentFormattingEditProvider {
         return parens > 0 || brackets > 0 || braces > 0;
     }
     stripCommentsAndStrings(line) {
+        return this.stripCommentsAndStringsWithScanner(line, new CharacterScanner());
+    }
+    stripCommentsAndStringsWithScanner(line, scanner) {
         let result = '';
-        const scanner = new CharacterScanner();
+        scanner.startLine();
         for (let i = 0; i < line.length; i++) {
             const { skip, skipNext } = scanner.processChar(line, i);
             if (skipNext) {
@@ -1101,28 +1999,6 @@ class LPCDocumentFormattingEditProvider {
             result += line[i];
         }
         return result.trimEnd();
-    }
-    isControlStatementWithoutBrace(line) {
-        // Strip comments to check the actual code structure
-        const withoutComments = this.stripCommentsAndStrings(line);
-        if (line.match(/^\s*(?:if|while|for|foreach)\s*\(/)) {
-            if (withoutComments.trimEnd().endsWith(')')) {
-                return true;
-            }
-            if (this.hasUnclosedBrackets(withoutComments)) {
-                return true;
-            }
-        }
-        if (line.match(/^\s*else\s*$/)) {
-            return true;
-        }
-        if (line.match(/^\s*else\s+if\s*\(/) && withoutComments.trimEnd().endsWith(')')) {
-            return true;
-        }
-        if (line.match(/^\s*do\s*$/)) {
-            return true;
-        }
-        return false;
     }
 }
 exports.LPCDocumentFormattingEditProvider = LPCDocumentFormattingEditProvider;

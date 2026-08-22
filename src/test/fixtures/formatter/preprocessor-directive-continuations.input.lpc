@@ -1,0 +1,14 @@
+void select_path(int enabled) {
+#if defined(FIRST_RULE) && \
+    defined(SECOND_RULE)
+if(enabled)
+perform();
+#elif defined(THIRD_RULE) && \
+    defined(FOURTH_RULE)
+if(enabled)
+use_alternate();
+#else
+if(enabled)
+use_default();
+#endif
+}

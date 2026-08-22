@@ -1,0 +1,10 @@
+int *collect_values() {
+    mixed token = 'entry + 1;
+    return ({ token });
+}
+
+nomask static mixed *
+select_value() {
+    return (mapping)
+        source;
+}

@@ -1,0 +1,16 @@
+nomask static mixed *
+collect_result() {
+value=first
++ second;
+value = left >=
+right;
+value=(mapping)
+source;
+return condition
+? primary
+: secondary;
+return target
+->apply(
+value
+);
+}

@@ -1,0 +1,30 @@
+void assemble() {
+mixed *values=({
+1,
+
+// element
+2,
+});
+closure callback=(:
+apply()
+:);
+mapping labels=([
+"prompt?"
+: 1
+]);
+mapping options = ([
+"items": ({ 1, 2, }),
+]);
+mixed *choices = (< "alpha", "beta" >);
+closure generated=lambda(
+({ 'value }),
+({
+/* note
+* ((
+*/
+#'identity,
+'value
+})
+);
+mixed *compact=({1,2});
+}

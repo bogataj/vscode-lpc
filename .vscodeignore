@@ -12,8 +12,6 @@ out/**/*.map
 .nyc_output
 coverage/
 **/.DS_Store
-formatted-lpc-test.lpc
-expected-result.lpc
 package-lock.json
 .claude/**
 CLAUDE.md
