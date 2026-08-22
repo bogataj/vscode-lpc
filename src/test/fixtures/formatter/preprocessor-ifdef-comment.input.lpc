@@ -1,0 +1,8 @@
+void guarded() {
+#ifdef LOG_SET_QUEST
+    if (previous_object()) {
+        log_file("QUESTS", "quest");
+    }
+#endif /* LOG_SET_QUEST */
+    finish();
+}

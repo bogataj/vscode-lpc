@@ -1224,6 +1224,32 @@ class LPCDocumentFormattingEditProvider {
         return tokens;
     }
     handleSpecialLine(trimmed, indentLevel, state, indentString = '    ', contentIndentLevel = indentLevel) {
+        if (!state.inBlockComment && trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
+            let newIndentLevel;
+            const directive = trimmed.match(/^#\s*(if|ifdef|ifndef|elif|else|endif)\b/)?.[1];
+            if (directive === 'if' || directive === 'ifdef' || directive === 'ifndef') {
+                state.preprocessorIndentStack.push(indentLevel);
+            }
+            else if (directive === 'else' || directive === 'elif') {
+                if (state.preprocessorIndentStack.length > 0) {
+                    newIndentLevel = state.preprocessorIndentStack[state.preprocessorIndentStack.length - 1];
+                }
+            }
+            else if (directive === 'endif' && state.preprocessorIndentStack.length > 0) {
+                state.preprocessorIndentStack.pop();
+            }
+            const commentPosition = this.findFirstCommentOutsideStrings(trimmed);
+            const opensBlockComment = commentPosition >= 0
+                && trimmed.substring(commentPosition, commentPosition + 2) === '/*'
+                && trimmed.indexOf('*/', commentPosition + 2) < 0;
+            return {
+                handled: true,
+                output: trimmed,
+                inBlockComment: opensBlockComment ? true : undefined,
+                blockCommentIndent: opensBlockComment ? 0 : undefined,
+                updateIndentLevel: newIndentLevel
+            };
+        }
         if (!state.inBlockComment && trimmed.includes('/*')) {
             const startPos = trimmed.indexOf('/*');
             // Don't treat /* inside strings as block comments
@@ -1298,27 +1324,6 @@ class LPCDocumentFormattingEditProvider {
             return {
                 handled: true,
                 output: ''
-            };
-        }
-        if (trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
-            let newIndentLevel;
-            if (trimmed.match(/^#\s*if/)) {
-                state.preprocessorIndentStack.push(indentLevel);
-            }
-            else if (trimmed.match(/^#\s*else/) || trimmed.match(/^#\s*elif/)) {
-                if (state.preprocessorIndentStack.length > 0) {
-                    newIndentLevel = state.preprocessorIndentStack[state.preprocessorIndentStack.length - 1];
-                }
-            }
-            else if (trimmed.match(/^#\s*endif/)) {
-                if (state.preprocessorIndentStack.length > 0) {
-                    state.preprocessorIndentStack.pop();
-                }
-            }
-            return {
-                handled: true,
-                output: trimmed,
-                updateIndentLevel: newIndentLevel
             };
         }
         return { handled: false };

@@ -4,6 +4,11 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-08-22
+
+### Fixed
+- Preprocessor directives with trailing block comments, including `#endif /* ... */`, remain at column zero and no longer cause LDMUD compile errors
+
 ## [1.4.1] - 2026-08-22
 
 ### Fixed
