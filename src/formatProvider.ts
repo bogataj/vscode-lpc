@@ -477,6 +477,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
 
             const activeSwitch = switchStack[switchStack.length - 1];
+            const previousLine = i > 0 ? lines[i - 1].trim() : '';
+            let usesStringContinuationColumn = false;
             
             if (activeSwitch && trimmed.match(/^(case\s+.*:|default\s*:)/)) {
                 currentIndent = activeSwitch.indentLevel;
@@ -510,6 +512,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     activeSwitch.lastLineWasCaseLabel = false;
                 }
             }
+            else if (previousLineNeedsContinuation && stringContinuationColumn >= 0
+                && trimmed.startsWith('"')) {
+                usesStringContinuationColumn = true;
+                if (activeSwitch) {
+                    activeSwitch.lastLineWasCaseLabel = false;
+                }
+            }
             else if (previousLineNeedsContinuation && bracketStack.length > 0 && bracketStack[bracketStack.length - 1].char === '(' && !trimmed.match(/^[)}\]>]/)) {
                 // Use continuation indent for function arguments (base indent + 1)
                 const parenMatch = bracketStack[bracketStack.length - 1];
@@ -525,48 +534,14 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
             else if (previousLineNeedsContinuation && lpcDataStructureDepth === 0) {
-                const previousLine = i > 0 ? lines[i - 1].trim() : '';
-                const previousFormattedLine = result.length > 0 ? result[result.length - 1] : '';
                 const isNewMappingKey = trimmed.match(/^"[^"]+"\s*:\s*\(/);
                 const previousWasMappingValue = previousLine.match(/\}\),\s*$/);
-                
-                if (trimmed.startsWith('"') && previousLine.endsWith('+')) {
-                    let columnToUse = stringContinuationColumn;
-                    
-                    if (columnToUse < 0) {
-                        let quotePos = previousFormattedLine.indexOf('"');
-                        if (quotePos === -1 && result.length >= 2) {
-                            for (let j = result.length - 2; j >= 0; j--) {
-                                const checkLine = result[j];
-                                const checkLineTrimmed = checkLine.trim();
-                                quotePos = checkLine.indexOf('"');
-                                if (quotePos !== -1) {
-                                    break;
-                                }
-                                if (!checkLineTrimmed.endsWith('+')) {
-                                    break;
-                                }
-                            }
-                        }
-                        if (quotePos !== -1) {
-                            columnToUse = quotePos;
-                            stringContinuationColumn = quotePos;
-                        }
-                    }
-                    
-                    if (columnToUse >= 0) {
-                        currentIndent = structuralIndent + 1;
-                    } else {
-                        currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
-                        stringContinuationColumn = -1;
-                    }
+
+                stringContinuationColumn = -1;
+                if (isNewMappingKey && previousWasMappingValue) {
+                    currentIndent = structuralIndent;
                 } else {
-                    stringContinuationColumn = -1;
-                    if (isNewMappingKey && previousWasMappingValue) {
-                        currentIndent = structuralIndent;
-                    } else {
-                        currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
-                    }
+                    currentIndent = Math.max(structuralIndent + 1, previousCurrentIndent);
                 }
                 if (activeSwitch) {
                     activeSwitch.lastLineWasCaseLabel = false;
@@ -612,11 +587,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             
             let spaces = indentString.repeat(currentIndent);
             
-            if (stringContinuationColumn >= 0) {
+            if (usesStringContinuationColumn) {
                 spaces = ' '.repeat(stringContinuationColumn);
                 if (!trimmed.endsWith('+')) {
                     stringContinuationColumn = -1;
                 }
+            } else {
+                stringContinuationColumn = -1;
             }
 
             let codepart = trimmed;
@@ -629,7 +606,6 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             
             let normalizedTrimmed = this.normalizeSpacing(codepart);
             
-            const previousLine = i > 0 ? lines[i - 1].trim() : '';
             const previousHasTernary = this.stripCommentsAndStrings(previousLine).includes('?');
             const currentStartsWithColon = trimmed.startsWith(':');
             
@@ -644,6 +620,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const finalTrimmed = this.alignInlineComment(normalizedTrimmed, commentPart);
 
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
+            if (/(?:^|[^+])\+\s*$/.test(structuralCode)) {
+                const localStringStart = this.findLastStringLiteralStart(formattedLine);
+                if (localStringStart >= 0) {
+                    stringContinuationColumn = localStringStart;
+                }
+            }
 
             let mergedWithPrevLine = false;
             if (trimmed === '{' && result.length > 0) {
@@ -1946,6 +1928,25 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
 
         return scanner.inString;
+    }
+
+    private findLastStringLiteralStart(line: string): number {
+        const scanner = new CharacterScanner();
+        let lastStart = -1;
+
+        for (let index = 0; index < line.length; index++) {
+            const startsString = line[index] === '"' && !scanner.inString
+                && !scanner.inLineComment && !scanner.inBlockComment;
+            const { skipNext } = scanner.processChar(line, index);
+            if (startsString) {
+                lastStart = index;
+            }
+            if (skipNext) {
+                index++;
+            }
+        }
+
+        return lastStart;
     }
 
     private findFirstCommentOutsideStrings(line: string): number {

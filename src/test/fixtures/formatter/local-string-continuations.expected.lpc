@@ -1,0 +1,23 @@
+void configure() {
+    items = ({
+        "tower","The tower rises " +
+                "above the clouds " +
+                "and disappears.",
+        ({"mountain","peak"}),"The mountain is " +
+                              "perfectly vertical.",
+        "noted","The first line " +
+        /* local note */
+
+                "survives trivia.",
+    });
+    descriptions = ([
+        "tower":"A black tower " +
+                "built long ago.",
+    ]);
+    mixed labels = (<
+        "first label " +
+        "continued",
+    >);
+    write("The circle closes " +
+          "around the player.");
+}

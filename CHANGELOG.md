@@ -4,6 +4,11 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-08-23
+
+### Fixed
+- Continued strings retain expression-local alignment inside LPC arrays, mappings, multisets, and function calls, including across comments and blank lines
+
 ## [1.4.2] - 2026-08-22
 
 ### Fixed
