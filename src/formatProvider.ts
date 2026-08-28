@@ -29,6 +29,7 @@ interface PreprocessorFormatContext {
     previousLineNeedsContinuation: boolean;
     previousCurrentIndent: number;
     stringContinuationColumn: number;
+    stringContinuationPrefix: string;
     lpcDataStructureDepth: number;
     bracketStack: BracketInfo[];
     lpcStructureIndentStack: number[];
@@ -295,6 +296,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let previousLineNeedsContinuation = false;
         let previousCurrentIndent = 0;
         let stringContinuationColumn = -1;
+        let stringContinuationPrefix = '';
         let lpcStructureIndentStack: number[] = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
@@ -367,6 +369,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     previousLineNeedsContinuation,
                     previousCurrentIndent,
                     stringContinuationColumn,
+                    stringContinuationPrefix,
                     lpcDataStructureDepth,
                     bracketStack: bracketStack.map(bracket => ({ ...bracket })),
                     lpcStructureIndentStack: [...lpcStructureIndentStack],
@@ -379,6 +382,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     previousLineNeedsContinuation = branchState.previousLineNeedsContinuation;
                     previousCurrentIndent = branchState.previousCurrentIndent;
                     stringContinuationColumn = branchState.stringContinuationColumn;
+                    stringContinuationPrefix = branchState.stringContinuationPrefix;
                     lpcDataStructureDepth = branchState.lpcDataStructureDepth;
                     bracketStack.splice(0, bracketStack.length, ...branchState.bracketStack.map(bracket => ({ ...bracket })));
                     lpcStructureIndentStack.splice(
@@ -538,6 +542,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 const previousWasMappingValue = previousLine.match(/\}\),\s*$/);
 
                 stringContinuationColumn = -1;
+                stringContinuationPrefix = '';
                 if (isNewMappingKey && previousWasMappingValue) {
                     currentIndent = structuralIndent;
                 } else {
@@ -588,12 +593,16 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             let spaces = indentString.repeat(currentIndent);
             
             if (usesStringContinuationColumn) {
-                spaces = ' '.repeat(stringContinuationColumn);
+                spaces = options.insertSpaces
+                    ? ' '.repeat(stringContinuationColumn)
+                    : stringContinuationPrefix || indentString.repeat(currentIndent);
                 if (!trimmed.endsWith('+')) {
                     stringContinuationColumn = -1;
+                    stringContinuationPrefix = '';
                 }
             } else {
                 stringContinuationColumn = -1;
+                stringContinuationPrefix = '';
             }
 
             let codepart = trimmed;
@@ -613,7 +622,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 const prevFullLine = result[result.length - 1];
                 const questionPos = prevFullLine.indexOf('?');
                 if (questionPos >= 0) {
-                    spaces = ' '.repeat(questionPos);
+                    spaces = options.insertSpaces
+                        ? ' '.repeat(questionPos)
+                        : prevFullLine.match(/^[\t ]*/)?.[0] || indentString.repeat(currentIndent);
                 }
             }
             
@@ -624,6 +635,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 const localStringStart = this.findLastStringLiteralStart(formattedLine);
                 if (localStringStart >= 0) {
                     stringContinuationColumn = localStringStart;
+                    stringContinuationPrefix = formattedLine.match(/^[\t ]*/)?.[0] ?? '';
                 }
             }
 

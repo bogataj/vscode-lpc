@@ -76,6 +76,64 @@ const integrationTests: TestCase[] = [
                 }
             });
 
+            const mixedIndentationInput = [
+                'void create() {',
+                '\tset_long(',
+                '\t\t"first line " +',
+                '        "second line " +',
+                '\t\t"third line"',
+                '\t);',
+                '\treturn condition',
+                '\t\t? primary',
+                '        : secondary;',
+                '}'
+            ].join('\n');
+            await withLpcDocument(mixedIndentationInput, document => {
+                const provider = new LPCDocumentFormattingEditProvider();
+                const format = (options: vscode.FormattingOptions): string => {
+                    const cancellation = new vscode.CancellationTokenSource();
+                    try {
+                        const edits = provider.provideDocumentFormattingEdits(
+                            document,
+                            options,
+                            cancellation.token
+                        );
+                        assert.strictEqual(edits.length, 1);
+                        return edits[0].newText;
+                    } finally {
+                        cancellation.dispose();
+                    }
+                };
+
+                assert.strictEqual(format({ insertSpaces: true, tabSize: 4 }), [
+                    'void create() {',
+                    '    set_long(',
+                    '        "first line " +',
+                    '        "second line " +',
+                    '        "third line"',
+                    '    );',
+                    '    return condition',
+                    '        ? primary',
+                    '        : secondary;',
+                    '}',
+                    ''
+                ].join('\n'));
+
+                assert.strictEqual(format({ insertSpaces: false, tabSize: 4 }), [
+                    'void create() {',
+                    '\tset_long(',
+                    '\t\t"first line " +',
+                    '\t\t"second line " +',
+                    '\t\t"third line"',
+                    '\t);',
+                    '\treturn condition',
+                    '\t\t? primary',
+                    '\t\t: secondary;',
+                    '}',
+                    ''
+                ].join('\n'));
+            });
+
             const partialSelectionInput = [
                 'void outer() {',
                 '    int value=1;',

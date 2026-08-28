@@ -4,6 +4,11 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-08-28
+
+### Fixed
+- Formatter now consistently honors configured space/tab indentation for multiline continuations without creating mixed prefixes
+
 ## [1.4.3] - 2026-08-23
 
 ### Fixed
