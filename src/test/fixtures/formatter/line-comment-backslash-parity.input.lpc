@@ -1,0 +1,7 @@
+void parity() {
+if (ready) // even backslashes \\
+handle();
+if (other) // odd backslash \
+this is still a comment with }
+handle();
+}

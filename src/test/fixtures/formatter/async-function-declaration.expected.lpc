@@ -1,0 +1,3 @@
+async nomask static mixed *build() {
+    return 1;
+}

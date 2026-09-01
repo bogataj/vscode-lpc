@@ -2,11 +2,17 @@ void calculate(object target, string text) {
     int first = 8, second = 3, result;
     result = first + second;
     result = first * second;
+    result = 2 * 3;
     result = first >= second && second != 0 ? first : second;
     result += second;
     result <<= 1;
+    result >>>= 1;
+    result &&= first;
+    result ||= second;
+    result = first >>> 1;
     string segment = text[1..<2];
     mixed *joined = ({ 1, 2 }) + ({ 3, 4 });
     target->apply(result);
+    target.apply(result);
     result = ::calculate();
 }

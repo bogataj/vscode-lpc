@@ -11,6 +11,8 @@ interface StructuralToken {
     line: number;
 }
 
+type LPCStructureDelimiter = '}' | ']' | '>';
+
 interface SpecialLineResult {
     handled: boolean;
     output?: string | string[];
@@ -33,6 +35,7 @@ interface PreprocessorFormatContext {
     lpcDataStructureDepth: number;
     bracketStack: BracketInfo[];
     lpcStructureIndentStack: number[];
+    lpcStructureStack: LPCStructureDelimiter[];
     switchStack: SwitchContext[];
     pendingForHeader: boolean;
 }
@@ -41,20 +44,24 @@ type PreprocessorDirective = 'if' | 'ifdef' | 'ifndef' | 'elif' | 'else' | 'endi
 
 interface PreprocessorLineInfo {
     continuationLines: boolean[];
+    lineCommentContinuationLines: boolean[];
     directives: Array<PreprocessorDirective | undefined>;
 }
 
 const LPC_SIMPLE_TYPE_PATTERN = 'void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype';
 const LPC_TYPE_PATTERN = `${LPC_SIMPLE_TYPE_PATTERN}|struct`;
-const LPC_DECLARATION_TYPE_PATTERN = `(?:${LPC_SIMPLE_TYPE_PATTERN}|struct(?:\\s+[A-Za-z_]\\w*)?)`;
-const LPC_MODIFIER_PATTERN = 'static|private|protected|public|nomask|deprecated|varargs|virtual|nosave';
+const LPC_NAMED_TYPE_PATTERN = `(?:${LPC_SIMPLE_TYPE_PATTERN}|struct(?:\\s+[A-Za-z_]\\w*)?)`;
+const LPC_DECLARATION_TYPE_MEMBER_PATTERN = `${LPC_NAMED_TYPE_PATTERN}\\*?`;
+const LPC_DECLARATION_TYPE_PATTERN =
+    `${LPC_DECLARATION_TYPE_MEMBER_PATTERN}(?:\\s*\\|\\s*${LPC_DECLARATION_TYPE_MEMBER_PATTERN})*`;
+const LPC_MODIFIER_PATTERN = 'async|static|private|protected|public|nomask|deprecated|varargs|virtual|nosave';
 const LPC_FUNCTION_DECLARATION_PATTERN = new RegExp(
     `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+(?:\\*+\\s*)?\\w+\\s*\\([^)]*\\)\\s*$`
 );
 const LPC_SPLIT_POINTER_RETURN_PATTERN = new RegExp(
     `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+\\*+\\s*$`
 );
-const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN = new RegExp(`^(?:${LPC_TYPE_PATTERN})\\*?$`);
+const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN = new RegExp(`^(?:${LPC_DECLARATION_TYPE_PATTERN})\\*?$`);
 
 class CharacterScanner {
     inString = false;
@@ -218,7 +225,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const preprocessor = this.analyzePreprocessorLines(lines);
         return scanner.inString
             || scanner.inBlockComment
-            || preprocessor.continuationLines[lines.length - 1];
+            || preprocessor.continuationLines[lines.length - 1]
+            || preprocessor.lineCommentContinuationLines[lines.length - 1];
     }
 
     private expandRangeToFullLines(document: vscode.TextDocument, range: vscode.Range): vscode.Range {
@@ -247,6 +255,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const trimmed = line.trim();
             return trimmed.length > 0
                 && !preprocessor.continuationLines[index]
+                && !preprocessor.lineCommentContinuationLines[index]
                 && !/^#(?!')/.test(trimmed);
         }) ?? lines.find(line => line.trim().length > 0);
         if (!firstContentLine) {
@@ -298,6 +307,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let stringContinuationColumn = -1;
         let stringContinuationPrefix = '';
         let lpcStructureIndentStack: number[] = [];
+        const lpcStructureStack: LPCStructureDelimiter[] = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
         let lpcDataStructureDepth = 0;
@@ -305,6 +315,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         let preprocessorIndentStack: number[] = [];
         const preprocessorFormatStack: PreprocessorFormatContext[] = [];
         let inBackslashStringContinuation = false;
+        let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         let pendingForHeader = false;
 
@@ -321,6 +332,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 inPreprocessorContinuation = this.endsWithLineContinuation(line);
                 continue;
             }
+
+            if (inLineCommentContinuation) {
+                result.push(line);
+                inLineCommentContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
             
             // Handle backslash string continuation - preserve original line as-is
             if (inBackslashStringContinuation) {
@@ -335,7 +352,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     inBlockComment = true;
                     blockCommentIndent = previousCurrentIndent;
                 }
-                const structureCounts = this.countBracesAndStructures(continuedString.code, false);
+                const structureCounts = this.countBracesAndStructures(
+                    continuedString.code,
+                    false,
+                    lpcStructureStack
+                );
                 indentLevel = Math.max(
                     0,
                     indentLevel + structureCounts.openBraceCount - structureCounts.closeBraceCount
@@ -373,6 +394,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     lpcDataStructureDepth,
                     bracketStack: bracketStack.map(bracket => ({ ...bracket })),
                     lpcStructureIndentStack: [...lpcStructureIndentStack],
+                    lpcStructureStack: [...lpcStructureStack],
                     switchStack: switchStack.map(context => ({ ...context })),
                     pendingForHeader
                 });
@@ -389,6 +411,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                         0,
                         lpcStructureIndentStack.length,
                         ...branchState.lpcStructureIndentStack
+                    );
+                    lpcStructureStack.splice(
+                        0,
+                        lpcStructureStack.length,
+                        ...branchState.lpcStructureStack
                     );
                     switchStack.splice(
                         0,
@@ -441,6 +468,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 if (!inBlockComment && trimmed.startsWith('#') && !trimmed.startsWith("#'")
                     && this.endsWithLineContinuation(trimmed)) {
                     inPreprocessorContinuation = true;
+                }
+                if (!inBlockComment && trimmed.startsWith('//')
+                    && this.hasContinuedLineComment(trimmed)) {
+                    inLineCommentContinuation = true;
                 }
                 if (preprocessorDirective === 'endif') {
                     preprocessorFormatStack.pop();
@@ -631,6 +662,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const finalTrimmed = this.alignInlineComment(normalizedTrimmed, commentPart);
 
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
+            const continuesLineComment = this.hasContinuedLineComment(trimmed, inBlockComment);
             if (/(?:^|[^+])\+\s*$/.test(structuralCode)) {
                 const localStringStart = this.findLastStringLiteralStart(formattedLine);
                 if (localStringStart >= 0) {
@@ -716,7 +748,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
 
             const { openBraceCount, closeBraceCount, openingCount, closingCount} = 
-                this.countBracesAndStructures(trimmed, leadingCloseBraceHandled);
+                this.countBracesAndStructures(trimmed, leadingCloseBraceHandled, lpcStructureStack);
             const netLPCChange = openingCount - closingCount;
             
             const netBraces = openBraceCount - closeBraceCount;
@@ -748,6 +780,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     }
                 }
             }
+            inLineCommentContinuation = continuesLineComment;
         }
 
         result = this.postProcessMultiLinePatterns(result);
@@ -759,12 +792,19 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const preprocessedLines: string[] = [];
         let inBlockComment = false;
         let inBackslashStringContinuation = false;
+        let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         
         for (const originalLine of lines) {
             if (inPreprocessorContinuation) {
                 preprocessedLines.push(originalLine);
                 inPreprocessorContinuation = this.endsWithLineContinuation(originalLine);
+                continue;
+            }
+
+            if (inLineCommentContinuation) {
+                preprocessedLines.push(originalLine);
+                inLineCommentContinuation = this.endsWithLineContinuation(originalLine);
                 continue;
             }
 
@@ -814,7 +854,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 inBlockComment = true;
             }
 
-            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+            if (trimmed.startsWith('//')) {
+                preprocessedLines.push(line);
+                inLineCommentContinuation = this.hasContinuedLineComment(line);
+                continue;
+            }
+
+            if (trimmed.startsWith('/*') || trimmed.startsWith('*')) {
                 preprocessedLines.push(line);
                 continue;
             }
@@ -846,6 +892,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
 
             inBackslashStringContinuation = this.endsWithBackslashInString(line);
+            inLineCommentContinuation = this.hasContinuedLineComment(line, inBlockComment);
         }
         
         return preprocessedLines;
@@ -1049,9 +1096,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     private applyPreprocessorControlDepths(lines: string[], depths: number[]): void {
         const preprocessor = this.analyzePreprocessorLines(lines);
         const continuationLines = preprocessor.continuationLines;
+        const lineCommentContinuationLines = preprocessor.lineCommentContinuationLines;
 
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            if (continuationLines[lineIndex]) {
+            if (continuationLines[lineIndex] || lineCommentContinuationLines[lineIndex]) {
                 continue;
             }
             const openingDirective = preprocessor.directives[lineIndex];
@@ -1062,7 +1110,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
             const precedingTokens = this.tokenizeStructuralLines(lines.slice(0, lineIndex));
             const headerEnd = precedingTokens[precedingTokens.length - 1]?.line ?? -1;
-            if (continuationLines[headerEnd]) {
+            if (continuationLines[headerEnd] || lineCommentContinuationLines[headerEnd]) {
                 continue;
             }
             const isControlBody = this.isControlHeaderEndingAt(lines, headerEnd);
@@ -1100,7 +1148,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             for (const branch of branches) {
                 const branchLines = lines.slice(branch.start, branch.end);
                 const structuralBranchLines = branchLines.map((line, offset) =>
-                    continuationLines[branch.start + offset] ? '' : line
+                    continuationLines[branch.start + offset]
+                        || lineCommentContinuationLines[branch.start + offset]
+                        ? ''
+                        : line
                 );
                 const branchTokens = this.tokenizeStructuralLines(structuralBranchLines);
                 if (branchTokens.length === 0) {
@@ -1118,7 +1169,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     + (isControlBody && branchTokens[0].value !== '{' ? 1 : 0);
                 const branchDepths = this.analyzeControlFlow(structuralBranchLines, false);
                 for (let offset = 0; offset < branchLines.length; offset++) {
-                    if (!continuationLines[branch.start + offset]) {
+                    if (!continuationLines[branch.start + offset]
+                        && !lineCommentContinuationLines[branch.start + offset]) {
                         depths[branch.start + offset] = bodyDepth + branchDepths[offset];
                     }
                 }
@@ -1194,16 +1246,24 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
     private analyzePreprocessorLines(lines: string[]): PreprocessorLineInfo {
         const continuationLines = new Array<boolean>(lines.length).fill(false);
+        const lineCommentContinuationLines = new Array<boolean>(lines.length).fill(false);
         const directives = new Array<PreprocessorDirective | undefined>(lines.length).fill(undefined);
         let inDirectiveContinuation = false;
+        let inLineCommentContinuation = false;
         let inBlockComment = false;
         let inContinuedString = false;
 
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             const line = lines[lineIndex];
             continuationLines[lineIndex] = inDirectiveContinuation;
+            lineCommentContinuationLines[lineIndex] = inLineCommentContinuation;
             if (inDirectiveContinuation) {
                 inDirectiveContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+
+            if (inLineCommentContinuation) {
+                inLineCommentContinuation = this.endsWithLineContinuation(line);
                 continue;
             }
 
@@ -1239,10 +1299,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 && line.indexOf('*/', commentPosition + 2) < 0) {
                 inBlockComment = true;
             }
+            inLineCommentContinuation = this.hasContinuedLineComment(line, inBlockComment);
             inContinuedString = this.endsWithBackslashInString(line);
         }
 
-        return { continuationLines, directives };
+        return { continuationLines, lineCommentContinuationLines, directives };
     }
 
     private expandPreprocessorVariants(lines: string[], maxVariants = 32): string[][] {
@@ -1251,7 +1312,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             directive === 'if' || directive === 'ifdef' || directive === 'ifndef';
         const sanitizeRange = (start: number, end: number): string[] =>
             lines.slice(start, end).map((line, offset) =>
-                preprocessor.continuationLines[start + offset] ? '' : line
+                preprocessor.continuationLines[start + offset]
+                    || preprocessor.lineCommentContinuationLines[start + offset]
+                    ? ''
+                    : line
             );
 
         const expandRange = (start: number, end: number): string[][] => {
@@ -1343,6 +1407,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     private tokenizeStructuralLines(lines: string[]): StructuralToken[] {
         const tokens: StructuralToken[] = [];
         let inBlockComment = false;
+        let inLineCommentContinuation = false;
         let inContinuedString = false;
         let inPreprocessorContinuation = false;
 
@@ -1355,6 +1420,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 continue;
             }
 
+            if (inLineCommentContinuation) {
+                inLineCommentContinuation = this.endsWithLineContinuation(line);
+                continue;
+            }
+
             if (!inBlockComment && !inContinuedString
                 && trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
                 inPreprocessorContinuation = this.endsWithLineContinuation(line);
@@ -1364,6 +1434,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             let inString: boolean = inContinuedString;
             let stringDelimiter: '"' | "'" | null = inContinuedString ? '"' : null;
             let escaped = false;
+            let lineCommentPosition = -1;
 
             for (let index = 0; index < line.length; index++) {
                 const char = line[index];
@@ -1390,6 +1461,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
 
                 if (char === '/' && nextChar === '/') {
+                    lineCommentPosition = index;
                     break;
                 }
                 if (char === '/' && nextChar === '*') {
@@ -1427,6 +1499,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             }
 
             inContinuedString = inString && stringDelimiter === '"' && this.endsWithLineContinuation(line);
+            inLineCommentContinuation = lineCommentPosition >= 0
+                && this.endsWithLineContinuation(line);
         }
 
         return tokens;
@@ -1575,6 +1649,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             '$1 ('
         );
         normalized = this.replaceOutsideProtectedText(normalized, /\s*->\s*/g, '->');
+        normalized = this.replaceOutsideProtectedText(
+            normalized,
+            /([A-Za-z0-9_)\]}])\s*\.\s*([A-Za-z_(])/g,
+            '$1.$2'
+        );
         normalized = this.replaceOutsideProtectedText(normalized, /\(\s+(?!\(\{)/g, '(');
         normalized = this.replaceOutsideProtectedText(
             normalized,
@@ -1616,6 +1695,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])-([a-zA-Z0-9_"({])/g, '$1 - $2');
+        normalized = this.normalizeMultiplicationSpacing(normalized);
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
         
@@ -1624,6 +1704,17 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])\+=([a-zA-Z0-9_"({])/g, '$1 += $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}]) \+=([a-zA-Z0-9_"({])/g, '$1 += $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])\+= ([a-zA-Z0-9_"({])/g, '$1 += $2');
+
+        normalized = this.replaceOutsideProtectedText(
+            normalized,
+            /([a-zA-Z0-9_")\]}])\s*(>>>=|&&=|\|\|=)\s*([a-zA-Z0-9_"'({])/g,
+            '$1 $2 $3'
+        );
+        normalized = this.replaceOutsideProtectedText(
+            normalized,
+            /([a-zA-Z0-9_")\]}])\s*>>>\s*([a-zA-Z0-9_"'({])/g,
+            '$1 >>> $2'
+        );
         
         normalized = this.replaceOutsideProtectedText(normalized, /\(:\s+/g, '(: ');
         normalized = this.replaceOutsideProtectedText(normalized, /\s+:\)/g, ' :)');
@@ -1633,6 +1724,42 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         });
         
         return normalized;
+    }
+
+    private normalizeMultiplicationSpacing(code: string): string {
+        const pattern = /([A-Za-z0-9_)\]}])\s*\*(\s*)([A-Za-z0-9_"'({])/g;
+        const protectedMask = this.computeProtectedMask(code);
+        let normalized = '';
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        while ((match = pattern.exec(code)) !== null) {
+            normalized += code.substring(lastIndex, match.index);
+
+            const starIndex = match.index + match[0].indexOf('*');
+            const isProtected = this.rangeTouchesProtectedText(
+                protectedMask,
+                match.index,
+                match[0].length
+            );
+            const isPointerDeclaration = this.isPointerDeclarationPrefix(
+                code.substring(0, starIndex)
+            );
+
+            normalized += isProtected || isPointerDeclaration
+                ? match[0]
+                : `${match[1]} * ${match[3]}`;
+            lastIndex = match.index + match[0].length;
+        }
+
+        return normalized + code.substring(lastIndex);
+    }
+
+    private isPointerDeclarationPrefix(prefix: string): boolean {
+        const declarationTypePattern = new RegExp(
+            `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN}|<[^;{}]+>)$`
+        );
+        return declarationTypePattern.test(prefix.trim());
     }
 
     private isControlOpeningBrace(lines: string[], braceLine: number): boolean {
@@ -1826,13 +1953,22 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const nextChar = column + 1 < line.length ? line[column + 1] : '';
             const previousChar = column > 0 ? line[column - 1] : '';
 
-            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
+            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')
+                && !this.isStructLiteralStart(line, column)) {
                 bracketStack.push({ char: '(', assignedIndent: currentIndent });
                 column++;
                 continue;
             }
 
             if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
+                const matchingBracket = char === '}'
+                    ? '{'
+                    : char === ']'
+                        ? '['
+                        : '<';
+                if (bracketStack[bracketStack.length - 1]?.char === matchingBracket) {
+                    bracketStack.pop();
+                }
                 if (bracketStack[bracketStack.length - 1]?.char === '(') {
                     bracketStack.pop();
                 }
@@ -1874,7 +2010,11 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return scanner;
     }
 
-    private countBracesAndStructures(trimmed: string, leadingCloseBraceHandled: boolean): {
+    private countBracesAndStructures(
+        trimmed: string,
+        leadingCloseBraceHandled: boolean,
+        lpcStructureStack: LPCStructureDelimiter[]
+    ): {
         openBraceCount: number;
         closeBraceCount: number;
         openingCount: number;
@@ -1896,17 +2036,22 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const prevChar = i > 0 ? trimmed[i - 1] : '';
 
             // LPC structure openers: ({, ([, (<
-            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')) {
+            if (char === '(' && (nextChar === '{' || nextChar === '[' || nextChar === '<')
+                && !this.isStructLiteralStart(trimmed, i)) {
                 openingCount++;
+                lpcStructureStack.push(nextChar === '{' ? '}' : nextChar === '[' ? ']' : '>');
                 i++;  // Skip the {/[/<
                 continue;
             }
 
             // LPC structure closers: }), ]), >)
             if ((char === '}' || char === ']' || char === '>') && nextChar === ')') {
-                closingCount++;
-                i++;  // Skip the )
-                continue;
+                if (lpcStructureStack[lpcStructureStack.length - 1] === char) {
+                    closingCount++;
+                    lpcStructureStack.pop();
+                    i++;  // Skip the )
+                    continue;
+                }
             }
 
             // Skip ) that was part of a structure closer already handled
@@ -1928,6 +2073,21 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
 
         return { openBraceCount, closeBraceCount, openingCount, closingCount };
+    }
+
+    private isStructLiteralStart(line: string, index: number): boolean {
+        if (line[index] !== '(' || line[index + 1] !== '<') {
+            return false;
+        }
+
+        const typeMatch = line.substring(index + 2).match(
+            /^\s*(?:struct\s+)?[A-Za-z_]\w*\s*>/
+        );
+        if (!typeMatch) {
+            return false;
+        }
+
+        return line.substring(index + 2 + typeMatch[0].length).trimStart().charAt(0) !== ')';
     }
 
     private isInsideString(line: string, position: number): boolean {
@@ -1967,6 +2127,27 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
 
     private findFirstLineCommentOutsideStrings(line: string): number {
         return this.findFirstComment(line, true);
+    }
+
+    private hasContinuedLineComment(line: string, inBlockComment = false): boolean {
+        const scanner = new CharacterScanner();
+        scanner.inBlockComment = inBlockComment;
+
+        for (let index = 0; index < line.length; index++) {
+            const char = line[index];
+            const nextChar = index + 1 < line.length ? line[index + 1] : '';
+            if (!scanner.inString && !scanner.inLineComment && !scanner.inBlockComment
+                && char === '/' && nextChar === '/') {
+                return this.endsWithLineContinuation(line);
+            }
+
+            const { skipNext } = scanner.processChar(line, index);
+            if (skipNext) {
+                index++;
+            }
+        }
+
+        return false;
     }
 
     private findFirstComment(line: string, lineCommentsOnly: boolean): number {
@@ -2155,6 +2336,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     private postProcessMultiLinePatterns(lines: string[]): string[] {
         const processed: string[] = [];
         let lambdaParenDepth = 0;
+        let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         const analysisScanner = new CharacterScanner();
         const isClosureContent = (content: string): boolean => {
@@ -2173,6 +2355,14 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 processed.push(line);
                 continue;
             }
+            if (inLineCommentContinuation) {
+                inLineCommentContinuation = this.endsWithLineContinuation(line);
+                processed.push(line);
+                if (!inLineCommentContinuation) {
+                    analysisScanner.startLine();
+                }
+                continue;
+            }
             if (!lineStartScanner.inString && !lineStartScanner.inBlockComment
                 && /^#(?!')/.test(line.trimStart())) {
                 inPreprocessorContinuation = this.endsWithLineContinuation(line);
@@ -2188,6 +2378,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                     : analysisLine.substring(lambdaIndex + 'lambda'.length);
                 lambdaParenDepth += this.countParenthesisDelta(lambdaText);
                 processed.push(line);
+                if (this.hasContinuedLineComment(line, lineStartScanner.inBlockComment)) {
+                    inLineCommentContinuation = true;
+                }
                 if (lambdaParenDepth < 0) {
                     lambdaParenDepth = 0;
                 }
@@ -2253,6 +2446,9 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 processedLine += line.substring(lastIndex);
                 processed.push(processedLine);
             }
+            if (this.hasContinuedLineComment(line, lineStartScanner.inBlockComment)) {
+                inLineCommentContinuation = true;
+            }
         }
         
         return processed;
@@ -2302,7 +2498,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return false;
         }
 
-        if (/(?:->|&&|\|\||==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[=+\-*/%&|^<>?:])\s*$/.test(trimmedLine)
+        if (/(?:->|>>>|&&|\|\||==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[=+\-*/%&|^<>?:])\s*$/.test(trimmedLine)
             && !trimmedLine.match(/^\s*(case\s+|default\s*:)/)) {
             return true;
         }
@@ -2315,7 +2511,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
     }
 
     private startsWithContinuationOperator(line: string): boolean {
-        return /^(?:&&|\|\||->|==|!=|<=|>=|<<|>>|\+(?!\+)|\/(?![/*])|[%&|^?]|:(?!:))/.test(line);
+        return /^(?:>>>|<<|>>|&&|\|\||->|==|!=|<=|>=|\+(?!\+)|\/(?![/*])|[%&|^?]|:(?!:))/.test(line);
     }
 
     private hasUnclosedBrackets(line: string): boolean {

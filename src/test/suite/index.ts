@@ -270,10 +270,32 @@ const integrationTests: TestCase[] = [
             );
             const operatorReference = new RegExp(grammar.repository.lpc_closures.patterns[1].match);
             const functionDefinition = new RegExp(grammar.repository.function_definitions.patterns[0].match);
+            const modifiers = new RegExp(grammar.repository.modifiers.patterns[0].match);
+            const flowKeywords = new RegExp(grammar.repository.keywords.patterns[2].match);
+            const coroutineEfuns = new RegExp(grammar.repository.efuns.patterns[1].match);
+            const structLiteral = new RegExp(grammar.repository.arrays_mappings.patterns[2].begin);
+            const hasOperator = (value: string): boolean => grammar.repository.operators.patterns.some(
+                (pattern: { match: string }) => new RegExp(pattern.match).test(value)
+            );
             assert.ok(operatorReference.test("#'["));
             assert.ok(operatorReference.test("#'[.."));
+            assert.ok(operatorReference.test("#'."));
             assert.ok(functionDefinition.test('int *collect_values('));
             assert.ok(functionDefinition.test('struct result *collect_result('));
+            assert.ok(functionDefinition.test('async int|string collect_values('));
+            assert.ok(functionDefinition.test('int*|string* collect_values('));
+            assert.ok(modifiers.test('async'));
+            assert.ok(flowKeywords.test('await'));
+            assert.ok(flowKeywords.test('yield'));
+            assert.ok(coroutineEfuns.test('call_coroutine'));
+            assert.ok(coroutineEfuns.test('this_coroutine'));
+            assert.ok(structLiteral.test('(<Foo>'));
+            assert.ok(hasOperator('>>>'));
+            assert.ok(hasOperator('>>>='));
+            assert.ok(hasOperator('&&='));
+            assert.ok(hasOperator('||='));
+            assert.ok(hasOperator('...'));
+            assert.ok(hasOperator('.'));
         }
     }
 ];

@@ -66,7 +66,7 @@
         {
           "name": "comment.line.double-slash.lpc",
           "begin": "//",
-          "end": "$",
+          "end": "(?<!\\\\)(?:\\\\\\\\)*$",
           "patterns": [
             {
               "name": "keyword.todo.lpc",
@@ -157,7 +157,7 @@
         },
         {
           "name": "entity.name.function.pointer.operator.lpc",
-          "match": "#'(?:\\[\\.\\.|\\[|[?=!<>+\\-*/%&|^~]+)",
+          "match": "#'(?:\\[\\.\\.|\\[|[?=!<>+\\-*/%&|^~.]+)",
           "patterns": []
         },
         {
@@ -237,7 +237,7 @@
         },
         {
           "name": "keyword.control.flow.lpc",
-          "match": "\\b(break|continue|return)\\b"
+          "match": "\\b(break|continue|return|await|yield)\\b"
         },
         {
           "name": "keyword.control.exception.lpc",
@@ -245,7 +245,7 @@
         },
         {
           "name": "keyword.operator.lpc",
-          "match": "\\b(efun|inherit|nolog|publish|in)\\b"
+          "match": "\\b(efun|inherit|nolog|publish|in|decltype)\\b"
         }
       ]
     },
@@ -265,7 +265,7 @@
       "patterns": [
         {
           "name": "storage.modifier.lpc",
-          "match": "\\b(public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\b"
+          "match": "\\b(async|public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\b"
         }
       ]
     },
@@ -274,6 +274,10 @@
         {
           "name": "support.function.builtin.lpc",
           "match": "\\b(abs|acos|add_action|all_environment|all_inventory|allocate|allocate_mapping|and_bits|apply|asin|assoc|atan|atan2|attach_erq_demon|binary_message|bind_lambda|blueprint|break_point|call_other|call_out|call_out_info|call_resolved|caller_stack|caller_stack_depth|capitalize|cat|catch|ceil|clear_bit|clone_object|clonep|clones|closurep|command|command_stack|command_stack_depth|copy|copy_bits|copy_file|cos|count_bits|crypt|ctime|db_affected_rows|db_close|db_coldefs|db_connect|db_conv_string|db_error|db_exec|db_fetch|db_handles|db_insert_id|debug_info|debug_message|deep_copy|deep_inventory|destruct|disable_commands|ed|enable_commands|environment|exec|execute_command|exp|expand_define|explode|extern_call|extract|file_size|filter|filter_indices|filter_objects|find_call_out|find_input_to|find_object|first_inventory|floatp|floor|funcall|function_exists|functionlist|garbage_collection|get_dir|get_error_file|get_eval_cost|get_extra_wizinfo|get_type_info|gmtime|heart_beat_info|implode|include_list|inherit_list|input_to|input_to_info|insert_alist|interactive|intersect_alist|intp|invert_bits|lambda|last_bit|last_instructions|limited|living|load_name|load_object|localtime|log|lower_case|m_add|m_allocate|m_contains|m_delete|m_entry|m_indices|m_reallocate|m_values|make_shared_string|map|map_indices|map_objects|mappingp|max|md5|member|min|mkdir|mkmapping|move_object|negate|next_bit|next_inventory|notify_fail|object_info|object_name|object_time|objectp|or_bits|order_alist|pointerp|pow|present|present_clone|previous_object|printf|process_string|program_name|program_time|query_actions|query_command|query_editing|query_idle|query_input_pending|query_ip_name|query_ip_number|query_limits|query_load_average|query_mud_port|query_notify_fail|query_once_interactive|query_shadowing|query_snoop|query_udp_port|query_verb|quote|raise_error|random|read_bytes|read_file|referencep|regexp|regexplode|regmatch|regreplace|remove_action|remove_call_out|remove_input_to|remove_interactive|rename|rename_object|replace_program|restore_object|restore_value|rm|rmdir|rmember|rusage|save_object|save_value|say|send_erq|send_udp|set_bit|set_buffer_size|set_combine_charset|set_connection_charset|set_driver_hook|set_environment|set_extra_wizinfo|set_extra_wizinfo_size|set_heart_beat|set_is_wizard|set_light|set_limits|set_modify_command|set_next_reset|set_prompt|set_this_object|set_this_player|sgn|shadow|shutdown|sin|sizeof|slice_array|snoop|sort_array|sprintf|sqrt|sscanf|stringp|strlen|strrstr|strstr|swap|symbol_function|symbol_variable|symbolp|tail|tan|tell_object|tell_room|terminal_colour|test_bit|this_interactive|this_object|this_player|throw|time|to_array|to_float|to_int|to_object|to_string|trace|traceprefix|transpose_array|trim|typeof|unbound_lambda|unique_array|unmkmapping|unquote|unshadow|upper_case|users|utime|variable_exists|variable_list|walk_mapping|widthof|wizlist_info|write|write_bytes|write_file|xor_bits)\\b"
+        },
+        {
+          "name": "support.function.coroutine.lpc",
+          "match": "\\b(call_coroutine|this_coroutine|check_type)\\b"
         }
       ]
     },
@@ -335,11 +339,11 @@
         },
         {
           "name": "keyword.operator.assignment.lpc",
-          "match": "<<=|>>=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^="
+          "match": ">>>=|<<=|>>=|&&=|\\|\\|=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^="
         },
         {
           "name": "keyword.operator.bitwise.lpc",
-          "match": "<<|>>"
+          "match": ">>>|<<|>>"
         },
         {
           "name": "keyword.operator.comparison.lpc",
@@ -358,6 +362,14 @@
           "match": "\\+\\+|\\-\\-|\\+|\\-|\\*|/|%"
         },
         {
+          "name": "keyword.operator.spread.lpc",
+          "match": "\\.\\.\\."
+        },
+        {
+          "name": "keyword.operator.member.lpc",
+          "match": "\\."
+        },
+        {
           "name": "keyword.operator.assignment.lpc",
           "match": "=(?!=)"
         },
@@ -371,7 +383,7 @@
       "patterns": [
         {
           "name": "meta.function.lpc",
-          "match": "^\\s*((?:(?:public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*)(void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\s+(\\**)\\s*(\\w+)\\s*\\(",
+          "match": "^\\s*((?:(?:async|public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*)((?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?(?:\\s*\\|\\s*(?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?)*)\\s+(\\**)\\s*(\\w+)\\s*\\(",
           "captures": {
             "1": {
               "name": "storage.modifier.lpc"
@@ -423,6 +435,26 @@
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.mapping.end.lpc"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "name": "meta.struct.literal.lpc",
+          "begin": "\\(<(?:struct\\s+)?[A-Za-z_]\\w*>(?!\\s*\\))",
+          "end": "\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.struct.begin.lpc"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.struct.end.lpc"
             }
           },
           "patterns": [

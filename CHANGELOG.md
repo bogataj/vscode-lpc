@@ -4,6 +4,17 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-01
+
+### Added
+- Formatter support for async functions, inline closure context declarations, struct literals, and union types
+- Syntax highlighting for coroutine keywords/efuns and newer LPC operators
+
+### Fixed
+- Formatter state no longer loses LPC delimiter context across preprocessor branches
+- Escaped-newline line comments are preserved and excluded from structural analysis
+- Member-access and multiplication spacing now normalize safely without changing protected text or pointer declarations
+
 ## [1.4.4] - 2026-08-28
 
 ### Fixed

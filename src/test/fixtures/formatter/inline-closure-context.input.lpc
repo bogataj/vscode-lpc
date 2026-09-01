@@ -1,0 +1,7 @@
+closure factory(int arg) {
+return function int (int val) : int y, x=2*arg;
+int z
+{
+return val*x;
+};
+}
