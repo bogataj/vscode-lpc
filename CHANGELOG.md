@@ -4,6 +4,12 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-09-02
+
+### Fixed
+- Updated transitive packaging dependencies to remove known audit vulnerabilities
+- Release workflow now audits dependencies, runs the complete test suite, and packages the VSIX before publishing
+
 ## [1.5.1] - 2026-09-02
 
 ### Added
