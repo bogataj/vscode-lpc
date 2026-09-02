@@ -8,7 +8,9 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ### Fixed
 - Updated transitive packaging dependencies to remove known audit vulnerabilities
-- Release workflow now audits dependencies, runs the complete test suite, and packages the VSIX before publishing
+- Release workflow now verifies dependency signatures, audits dependencies, runs the complete test suite, and packages the VSIX before publishing
+- Dependency versions are pinned to the reviewed lockfile state
+- CI and release installation no longer execute npm lifecycle scripts
 
 ## [1.5.1] - 2026-09-02
 

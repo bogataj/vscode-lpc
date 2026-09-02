@@ -114,11 +114,15 @@ npm run package
 Build output under `out/` is generated locally and is not committed. Packaging
 rebuilds it automatically through the `vscode:prepublish` script.
 
-GitHub releases are created only by pushing a `vX.Y.Z` tag whose version
-matches `package.json`. The release workflow installs from the lockfile, runs
-the dependency audit and the complete test suite, and packages the VSIX before
-publishing the GitHub release. Do not create a release manually before those
-checks pass; Marketplace publication remains a separate manual step.
+GitHub releases are created only by dispatching the `Release` workflow with an
+existing `vX.Y.Z` tag whose version matches `package.json`. After the main CI
+run is green, create and push the tag, then dispatch the workflow. It checks
+that the tag points to `main`, installs from the lockfile without lifecycle
+scripts, verifies npm signatures, runs the dependency audit and complete test
+suite, and packages the VSIX before publishing the GitHub release. Dependency
+versions are pinned in `package.json` and `package-lock.json`; updates must be
+intentional and reviewed. Marketplace publication remains a separate manual
+step.
 
 Run one integration test by passing part of its name:
 
