@@ -48,10 +48,11 @@ The formatter has been extensively tested and refined on real-world codebases wi
 - Logical operators: `&&`, `||`, `!`
 - Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>`
 - C-style control keywords and compact LPC member access: `if (...)`, `object->method()`
-- Brace-right control blocks and joined `} else {` clauses
+- Preserved brace placement for ordinary blocks, including standalone `{` and `else` lines
 
 **Edge Case Handling:**
 - One-liner function and control statement preservation
+- Single-statement functions can be compacted to one line when their body has no multiline content or comments
 - Token-preserving formatting: brace-less bodies remain brace-less and valid trailing commas remain intact
 - Inline comments containing brace characters
 - Nested function calls and closures

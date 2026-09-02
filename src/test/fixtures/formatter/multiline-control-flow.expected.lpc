@@ -34,7 +34,8 @@ second";
     switch
     (
         second
-    ) {
+    )
+    {
     case 1:
         record();
         break;

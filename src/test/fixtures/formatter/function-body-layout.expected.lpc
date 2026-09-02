@@ -1,0 +1,9 @@
+int|string choose(object|closure value)
+{
+    write(value);
+    return (int|string)value;
+}
+
+int|string compact_value(object|closure value) { return (int|string)value; }
+
+int|string compact_inline(object|closure value) { return (int|string)value; }

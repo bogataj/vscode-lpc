@@ -3,7 +3,8 @@ void inspect_text() {
     int value = 1; /* preserve a+b and x=2 */
     string source = "if(flag){emit();}";
     string note = "/* text only */";
-    if (value) { // braces in comment: { }
+    if (value)  // braces in comment: { }
+    {
         emit(source);
     }
 }

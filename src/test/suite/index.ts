@@ -180,7 +180,8 @@ const integrationTests: TestCase[] = [
                     );
                     assert.strictEqual(edits.length, 1);
                     assert.strictEqual(edits[0].newText, [
-                        '    } else',
+                        '    }',
+                        '    else',
                         '        fallback();',
                         '    if (other)',
                         '        next();',

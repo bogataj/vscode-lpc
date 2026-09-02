@@ -1,0 +1,43 @@
+void install_hooks()
+{
+    mixed values = ({
+        1,
+        2
+    });
+    mixed mapping = ([
+        "key": 1
+    ]);
+    mixed multiset = (<
+        "one",
+        "two"
+    >);
+    closure callback = unbound_lambda(
+        0,
+        ({
+            #'call_other,
+            ({#'this_object})
+        })
+    );
+    closure indexer = lambda(
+        ({'items, 'position}),
+        ({#'[, 'items, 'position})
+    );
+}
+
+void choose(int enabled)
+{
+    if (enabled)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+#define SPLIT_LPC(value) \
+value( \
+{
+value
+})

@@ -1,6 +1,4 @@
-int|string choose(object|closure value) {
-    return (int|string)value;
-}
+int|string choose(object|closure value) { return (int|string)value; }
 int*|string* values;
 <int|string>* arrayValues;
 < <int|string>*|object >* nestedValues;

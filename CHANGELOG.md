@@ -4,6 +4,16 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-02
+
+### Added
+- Compact formatting for functions with a single simple statement
+- Canonical formatting for LPC structure openers split across lines
+
+### Fixed
+- Formatter indentation drift after nested LPC closures and structure delimiters
+- Ordinary block and `else` layout is preserved while inline commented closing braces remain readable
+
 ## [1.5.0] - 2026-09-01
 
 ### Added

@@ -1,7 +1,12 @@
-void invoke_target(object target) {
-    if (target) { // generic note
+void invoke_target(object target)
+{
+    if (target)     // generic note
+    {
         ((object)target)->apply();
-    } else {
+    }
+
+    else
+    {
         use_default();
     }
 }

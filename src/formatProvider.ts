@@ -296,8 +296,6 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         
         const lines = this.preprocessLines(code.split(/\r?\n/));
         const unbracedIndentDepths = this.analyzeControlFlow(lines);
-        const preprocessorLineInfo = this.analyzePreprocessorLines(lines);
-        const preprocessorContinuationLines = preprocessorLineInfo.continuationLines;
         
         let result: string[] = [];
         let indentLevel = initialIndentLevel;
@@ -671,48 +669,12 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 }
             }
 
-            let mergedWithPrevLine = false;
-            if (trimmed === '{' && result.length > 0) {
-                const previousSourceLine = this.stripCommentsAndStrings(lines[i - 1] ?? '').trim();
-                const isFunctionDeclaration = LPC_FUNCTION_DECLARATION_PATTERN.test(previousSourceLine);
-
-                if (!preprocessorContinuationLines[i - 1]
-                    && (isFunctionDeclaration || this.isControlOpeningBrace(lines, i))) {
-                    const previousFormattedLine = result[result.length - 1];
-                    const commentIndex = this.findFirstCommentOutsideStrings(previousFormattedLine);
-                    result[result.length - 1] = commentIndex >= 0
-                        ? previousFormattedLine.substring(0, commentIndex).trimEnd()
-                            + ' { ' + previousFormattedLine.substring(commentIndex).trimStart()
-                        : previousFormattedLine + ' {';
-                    mergedWithPrevLine = true;
-                }
-            }
-
-            if (!mergedWithPrevLine && /^else\b/.test(finalTrimmed)) {
-                let previousSourceIndex = i - 1;
-                while (previousSourceIndex >= 0 && !lines[previousSourceIndex].trim()) {
-                    previousSourceIndex--;
-                }
-                let previousResultIndex = result.length - 1;
-                while (previousResultIndex >= 0 && result[previousResultIndex] === '') {
-                    previousResultIndex--;
-                }
-                const previousResultLine = result[previousResultIndex];
-                const previousIndent = previousResultLine?.match(/^[\t ]*/)?.[0] ?? '';
-                if (!preprocessorContinuationLines[previousSourceIndex]
-                    && previousResultLine?.trim() === '}' && previousIndent === spaces) {
-                    result.length = previousResultIndex + 1;
-                    result[previousResultIndex] += ' ' + finalTrimmed;
-                    mergedWithPrevLine = true;
-                }
-            }
-            
-            if (!mergedWithPrevLine && trimmed.startsWith(',') && result.length > 0) {
+            if (trimmed.startsWith(',') && result.length > 0) {
                 result[result.length - 1] = result[result.length - 1] + ',';
                 const withoutLeadingComma = trimmed.substring(1).trim();
                 const fixedLine = spaces + withoutLeadingComma;
                 result.push(fixedLine);
-            } else if (!mergedWithPrevLine) {
+            } else {
                 result.push(formattedLine);
             }
             
@@ -752,8 +714,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             const netLPCChange = openingCount - closingCount;
             
             const netBraces = openBraceCount - closeBraceCount;
-            if (netBraces > 0) {
-                indentLevel += netBraces;
+            if (netBraces !== 0) {
+                indentLevel = Math.max(0, indentLevel + netBraces);
             }
             
             if (openingCount > 0) {
@@ -784,18 +746,20 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
 
         result = this.postProcessMultiLinePatterns(result);
+        result = this.compactSingleStatementFunctions(result);
 
         return result.join('\n');
     }
 
     private preprocessLines(lines: string[]): string[] {
+        const canonicalLines = this.combineSplitLpcOpeners(lines);
         const preprocessedLines: string[] = [];
         let inBlockComment = false;
         let inBackslashStringContinuation = false;
         let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         
-        for (const originalLine of lines) {
+        for (const originalLine of canonicalLines) {
             if (inPreprocessorContinuation) {
                 preprocessedLines.push(originalLine);
                 inPreprocessorContinuation = this.endsWithLineContinuation(originalLine);
@@ -865,37 +829,88 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
                 continue;
             }
             
-            let codeOnly = trimmed;
-            const commentPos = this.findFirstCommentOutsideStrings(trimmed);
-            if (commentPos >= 0) {
-                codeOnly = trimmed.substring(0, commentPos).trim();
-            }
-            
-            const isOneLinerFunction = codeOnly.match(/^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/);
-            const isOneLinerControl = (codeOnly.match(/^(if|while|for|foreach)\s*\(/) || codeOnly.match(/^else\s*(if\s*\(|{)/)) && codeOnly.includes('{') && codeOnly.includes('}');
-            const isOneLinerIfElse = codeOnly.match(/^if\s*\([^)]*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}\s*$/);
-            
-            if (codeOnly.match(/;\s*\}+\s*$/) && !isOneLinerFunction && !isOneLinerControl && !isOneLinerIfElse) {
-                const match = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
-                if (match) {
-                    const leadingSpaces = line.match(/^(\s*)/)?.[1] || '';
-                    const commentSuffix = commentPos >= 0 ? trimmed.substring(commentPos).trimStart() : '';
-                    preprocessedLines.push(leadingSpaces + match[1].trim());
-                    preprocessedLines.push(
-                        leadingSpaces + match[2] + (commentSuffix ? ' ' + commentSuffix : '')
-                    );
-                } else {
-                    preprocessedLines.push(line);
-                }
-            } else {
-                preprocessedLines.push(line);
-            }
+            preprocessedLines.push(...this.splitInlineStatementBeforeCommentedBrace(line));
 
             inBackslashStringContinuation = this.endsWithBackslashInString(line);
             inLineCommentContinuation = this.hasContinuedLineComment(line, inBlockComment);
         }
         
         return preprocessedLines;
+    }
+
+    private splitInlineStatementBeforeCommentedBrace(line: string): string[] {
+        const trimmed = line.trim();
+        const commentPosition = this.findFirstCommentOutsideStrings(trimmed);
+        if (commentPosition < 0) {
+            return [line];
+        }
+
+        const codeOnly = trimmed.substring(0, commentPosition).trim();
+        const oneLinerFunction = /^[a-zA-Z_][\w\s*]*\([^)]*\)\s*\{[^}]*\}\s*$/.test(codeOnly);
+        const oneLinerControl = (
+            /^(?:if|while|for|foreach)\s*\(/.test(codeOnly)
+            || /^else\s*(?:if\s*\(|\{)/.test(codeOnly)
+        ) && codeOnly.includes('{') && codeOnly.includes('}');
+        const oneLinerIfElse = /^if\s*\([^)]*\)\s*\{[^}]*\}\s*else\s*\{[^}]*\}\s*$/.test(codeOnly);
+        const inlineClosingBrace = codeOnly.match(/^(.*?;\s*)(\}+)\s*$/);
+
+        if (!inlineClosingBrace || oneLinerFunction || oneLinerControl || oneLinerIfElse) {
+            return [line];
+        }
+
+        const leadingSpaces = line.match(/^(\s*)/)?.[1] ?? '';
+        const commentSuffix = trimmed.substring(commentPosition).trimStart();
+        return [
+            leadingSpaces + inlineClosingBrace[1].trim(),
+            leadingSpaces + inlineClosingBrace[2] + (commentSuffix ? ' ' + commentSuffix : '')
+        ];
+    }
+
+    private combineSplitLpcOpeners(lines: string[]): string[] {
+        const combinedLines: string[] = [];
+        const scanner = new CharacterScanner();
+        const preprocessor = this.analyzePreprocessorLines(lines);
+        let previousLineCanOpenLpcStructure = false;
+
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            const trimmedStart = line.trimStart();
+            const opener = trimmedStart.charAt(0);
+            const currentLineIsContinuation = preprocessor.continuationLines[lineIndex]
+                || preprocessor.lineCommentContinuationLines[lineIndex];
+            const previousLineIsContinuation = lineIndex > 0
+                && (preprocessor.continuationLines[lineIndex - 1]
+                    || preprocessor.lineCommentContinuationLines[lineIndex - 1]);
+            const canCombine = previousLineCanOpenLpcStructure
+                && !currentLineIsContinuation
+                && !previousLineIsContinuation
+                && (opener === '{' || opener === '[' || opener === '<')
+                && !trimmedStart.startsWith('#')
+                && !(opener === '<' && trimmedStart.startsWith('<='));
+
+            if (canCombine && combinedLines.length > 0) {
+                combinedLines[combinedLines.length - 1] =
+                    combinedLines[combinedLines.length - 1].trimEnd() + trimmedStart;
+            } else {
+                combinedLines.push(line);
+            }
+
+            scanner.startLine();
+            for (let index = 0; index < line.length; index++) {
+                const { skipNext } = scanner.processChar(line, index);
+                if (skipNext) {
+                    index++;
+                }
+            }
+
+            previousLineCanOpenLpcStructure = line.trimEnd().endsWith('(')
+                && !scanner.inString
+                && !scanner.inLineComment
+                && !scanner.inBlockComment
+                && !trimmedStart.startsWith('#');
+        }
+
+        return combinedLines;
     }
 
     private analyzeControlFlow(lines: string[], includePreprocessorBodies = true): number[] {
@@ -1759,19 +1774,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const declarationTypePattern = new RegExp(
             `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN}|<[^;{}]+>)$`
         );
-        return declarationTypePattern.test(prefix.trim());
-    }
-
-    private isControlOpeningBrace(lines: string[], braceLine: number): boolean {
-        if (braceLine <= 0 || lines[braceLine - 1].trim().length === 0) {
-            return false;
-        }
-
-        const previousLine = this.stripCommentsAndStrings(lines[braceLine - 1]).trim();
-        if (previousLine === 'else' || previousLine === 'do') {
-            return true;
-        }
-        return this.isControlHeaderEndingAt(lines, braceLine - 1);
+        const structuralPrefix = this.stripCommentsAndStrings(prefix);
+        const lastStatementBoundary = Math.max(
+            structuralPrefix.lastIndexOf('{'),
+            structuralPrefix.lastIndexOf('}'),
+            structuralPrefix.lastIndexOf(';')
+        );
+        return declarationTypePattern.test(structuralPrefix.substring(lastStatementBoundary + 1).trim());
     }
 
     private findFirstStatementEndLine(lines: string[]): number {
@@ -2452,6 +2461,46 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         }
         
         return processed;
+    }
+
+    private compactSingleStatementFunctions(lines: string[]): string[] {
+        const compacted: string[] = [];
+
+        for (let index = 0; index < lines.length; index++) {
+            const header = lines[index];
+            const headerText = header.trim();
+            const openingBraceMatch = headerText.match(/^(.*)\{\s*$/);
+            const hasSeparateOpeningBrace = lines[index + 1]?.trim() === '{';
+            const functionHeader = openingBraceMatch?.[1].trimEnd() ?? headerText;
+            const bodyIndex = openingBraceMatch ? index + 1 : index + 2;
+            const closingBraceIndex = bodyIndex + 1;
+            const body = lines[bodyIndex]?.trim() ?? '';
+            const canCompact = (openingBraceMatch !== null || hasSeparateOpeningBrace)
+                && closingBraceIndex < lines.length
+                && LPC_FUNCTION_DECLARATION_PATTERN.test(this.stripCommentsAndStrings(functionHeader).trim())
+                && this.findFirstCommentOutsideStrings(headerText) < 0
+                && body.length > 0
+                && this.findFirstCommentOutsideStrings(body) < 0
+                && lines[closingBraceIndex].trim() === '}'
+                && this.stripCommentsAndStrings(body).trimEnd().endsWith(';');
+
+            if (canCompact) {
+                const structureStack: LPCStructureDelimiter[] = [];
+                const structureCounts = this.countBracesAndStructures(body, false, structureStack);
+                if (structureCounts.openBraceCount === 0
+                    && structureCounts.closeBraceCount === 0
+                    && structureStack.length === 0) {
+                    const indentation = header.match(/^[\t ]*/)?.[0] ?? '';
+                    compacted.push(`${indentation}${functionHeader} { ${body} }`);
+                    index = closingBraceIndex;
+                    continue;
+                }
+            }
+
+            compacted.push(header);
+        }
+
+        return compacted;
     }
 
     private countParenthesisDelta(line: string): number {

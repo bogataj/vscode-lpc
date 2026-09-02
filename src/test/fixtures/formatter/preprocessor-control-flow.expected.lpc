@@ -49,7 +49,9 @@ void choose(int enabled) {
 #endif
     {
         use_fast();
-    } else {
+    }
+    else
+    {
         use_safe();
     }
     finish();
