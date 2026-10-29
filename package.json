@@ -10,7 +10,7 @@
   },
   "engines": {
     "vscode": "^1.74.0",
-    "node": ">=20.19.0"
+    "node": ">=24.11.0"
   },
   "categories": [
     "Programming Languages",
@@ -90,7 +90,7 @@
     "install:dev": "npm run package -- --out lpc-ldmud-lp245-dev.vsix && code --install-extension lpc-ldmud-lp245-dev.vsix --force"
   },
   "devDependencies": {
-    "@types/node": "20.19.22",
+    "@types/node": "24.19.2",
     "@types/vscode": "1.74.0",
     "typescript": "5.9.3"
   },
