@@ -4,6 +4,8 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-10-29
+
 ### Fixed
 - Pointer types in parameter lists, `foreach` headers, and inline closure parameters keep their `type *name` layout instead of being spaced as multiplication
 - Float literals with signed exponents such as `1.5e-3` are no longer split by operator spacing
