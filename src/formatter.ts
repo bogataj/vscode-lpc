@@ -174,6 +174,8 @@ class CharacterScanner {
 export interface LPCFormatOptions {
     insertSpaces: boolean;
     tabSize: number;
+    /** Collapse functions whose body is one simple statement onto one line (default true). */
+    compactSingleStatementFunctions?: boolean;
 }
 
 export interface FormatCancellation {
@@ -711,7 +713,9 @@ export class LPCFormatter {
         }
 
         result = this.postProcessMultiLinePatterns(result);
-        result = this.compactSingleStatementFunctions(result);
+        if (options.compactSingleStatementFunctions !== false) {
+            result = this.compactSingleStatementFunctions(result);
+        }
 
         return result.join('\n');
     }

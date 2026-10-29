@@ -52,6 +52,39 @@ export const providerTests: TestCase[] = [
             await withSetting('indentSize', 2, () => withLpcDocument(unformatted, document => {
                 assert.strictEqual(formatEdits(document)[0].newText, 'void f() {\n  x = 1;\n  return;\n}\n');
             }));
+
+            const singleStatement = 'int query_level()\n{\nreturn level;\n}';
+            await withLpcDocument(singleStatement, document => {
+                assert.strictEqual(formatEdits(document)[0].newText, 'int query_level() { return level; }\n');
+            });
+            await withSetting('compactSingleStatementFunctions', false, () => withLpcDocument(singleStatement, document => {
+                assert.strictEqual(formatEdits(document)[0].newText, 'int query_level()\n{\n    return level;\n}\n');
+            }));
+        }
+    },
+    {
+        name: 'provider indents with lpc.formatting.indentSize regardless of the editor tab size',
+        run: async () => {
+            const expectedFourSpaces = 'void f() {\n    x = 1;\n    return;\n}\n';
+            for (const tabSize of [2, 8]) {
+                await withLpcDocument(unformatted, document => {
+                    assert.strictEqual(formatEdits(document, { insertSpaces: true, tabSize })[0].newText, expectedFourSpaces);
+                });
+            }
+
+            await withSetting('indentSize', 3, () => withLpcDocument(unformatted, document => {
+                assert.strictEqual(
+                    formatEdits(document, { insertSpaces: true, tabSize: 8 })[0].newText,
+                    'void f() {\n   x = 1;\n   return;\n}\n'
+                );
+            }));
+
+            await withLpcDocument(unformatted, document => {
+                assert.strictEqual(
+                    formatEdits(document, { insertSpaces: false, tabSize: 8 })[0].newText,
+                    'void f() {\n\tx = 1;\n\treturn;\n}\n'
+                );
+            });
         }
     },
     {
