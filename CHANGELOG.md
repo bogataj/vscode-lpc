@@ -4,6 +4,8 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-29
+
 ### Fixed
 - Folder-level `lpc.formatting.*` settings now apply in multi-root workspaces
 - Formatting a CRLF file that is already formatted no longer produces an edit, and formatted CRLF files keep CRLF line endings
