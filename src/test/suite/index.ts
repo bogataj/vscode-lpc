@@ -78,7 +78,7 @@ const integrationTests: TestCase[] = [
 
             const mixedIndentationInput = [
                 'void create() {',
-                '\tset_long(',
+                '\tdescribe(',
                 '\t\t"first line " +',
                 '        "second line " +',
                 '\t\t"third line"',
@@ -107,7 +107,7 @@ const integrationTests: TestCase[] = [
 
                 assert.strictEqual(format({ insertSpaces: true, tabSize: 4 }), [
                     'void create() {',
-                    '    set_long(',
+                    '    describe(',
                     '        "first line " +',
                     '        "second line " +',
                     '        "third line"',
@@ -121,7 +121,7 @@ const integrationTests: TestCase[] = [
 
                 assert.strictEqual(format({ insertSpaces: false, tabSize: 4 }), [
                     'void create() {',
-                    '\tset_long(',
+                    '\tdescribe(',
                     '\t\t"first line " +',
                     '\t\t"second line " +',
                     '\t\t"third line"',
