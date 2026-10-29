@@ -1,23 +1,23 @@
 void configure() {
     items = ({
-        "tower","The tower rises " +
-                "above the clouds " +
-                "and disappears.",
-        ({"mountain","peak"}),"The mountain is " +
-                              "perfectly vertical.",
-        "noted","The first line " +
+        "first","First part " +
+                "second part " +
+                "third part.",
+        ({"second","alias"}),"Second value " +
+                             "continues here.",
+        "third","Third value " +
         /* local note */
 
                 "survives trivia.",
     });
-    descriptions = ([
-        "tower":"A black tower " +
-                "built long ago.",
+    labels = ([
+        "key":"Mapping value " +
+              "continues here.",
     ]);
-    mixed labels = (<
-        "first label " +
+    mixed values = (<
+        "multiset value " +
         "continued",
     >);
-    write("The circle closes " +
-          "around the player.");
+    emit("Call argument " +
+         "continues here.");
 }

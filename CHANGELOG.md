@@ -4,6 +4,9 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- Formatter test fixtures were sanitized to neutral identifiers and text that only exercise the rule under test
+
 ## [1.5.2] - 2026-09-02
 
 ### Fixed

@@ -1,4 +1,4 @@
-void install_hooks()
+void build_values()
 {
 mixed values = (
 {

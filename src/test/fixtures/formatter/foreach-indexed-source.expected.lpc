@@ -1,0 +1,12 @@
+void scan(mixed rows) {
+    foreach (mixed entry : rows[1]) {
+        record(entry);
+    }
+    foreach (mixed entry : rows[..20, <0]) {
+        record(entry);
+    }
+    if (rows) {
+        finish();
+    }
+    return;
+}
