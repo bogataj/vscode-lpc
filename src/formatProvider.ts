@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LPCFormatter } from './formatter';
+import { LPCFormatOptions, LPCFormatter } from './formatter';
 
 export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider {
     private readonly formatter = new LPCFormatter();
@@ -19,8 +19,8 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             document.positionAt(document.getText().length)
         );
         const text = document.getText(fullRange);
-        const indentSize = this.resolveIndentSize(config.get<number>('indentSize'), options.tabSize);
-        let formattedText = this.formatter.format(text, options, indentSize, token);
+        const { formatOptions, indentSize } = this.readFormatSettings(config, options);
+        let formattedText = this.formatter.format(text, formatOptions, indentSize, token);
         if (token.isCancellationRequested) {
             return [];
         }
@@ -54,10 +54,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return [];
         }
         const text = document.getText(formattingRange);
-        const indentSize = this.resolveIndentSize(config.get<number>('indentSize'), options.tabSize);
-        const initialIndentLevel = this.formatter.getInitialIndentLevel(text, options, indentSize);
+        const { formatOptions, indentSize } = this.readFormatSettings(config, options);
+        const initialIndentLevel = this.formatter.getInitialIndentLevel(text, formatOptions, indentSize);
         const formattedText = this.withDocumentLineEndings(
-            this.formatter.format(text, options, indentSize, token, initialIndentLevel),
+            this.formatter.format(text, formatOptions, indentSize, token, initialIndentLevel),
             document
         );
         if (token.isCancellationRequested || formattedText === text) {
@@ -85,9 +85,26 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return new vscode.Range(start, end);
     }
 
-    private resolveIndentSize(configuredIndentSize: number | undefined, fallback: number): number {
-        return Number.isInteger(configuredIndentSize) && configuredIndentSize !== undefined && configuredIndentSize > 0
+    /**
+     * `lpc.formatting.indentSize` (default 4) sets the spaces per level and takes precedence
+     * over the editor's tab size; with tabs, each level is one tab. The editor's tab size is
+     * only used to measure existing tabs and as a fallback for an invalid setting.
+     */
+    private readFormatSettings(
+        config: vscode.WorkspaceConfiguration,
+        options: vscode.FormattingOptions
+    ): { formatOptions: LPCFormatOptions; indentSize: number } {
+        const configuredIndentSize = config.get<number>('indentSize', 4);
+        const indentSize = Number.isInteger(configuredIndentSize) && configuredIndentSize > 0
             ? configuredIndentSize
-            : Math.max(1, Math.floor(fallback));
+            : Math.max(1, Math.floor(options.tabSize));
+        return {
+            formatOptions: {
+                insertSpaces: options.insertSpaces,
+                tabSize: options.tabSize,
+                compactSingleStatementFunctions: config.get<boolean>('compactSingleStatementFunctions', true)
+            },
+            indentSize
+        };
     }
 }

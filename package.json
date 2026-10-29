@@ -73,6 +73,12 @@
           "default": true,
           "description": "Insert final newline at end of file",
           "scope": "resource"
+        },
+        "lpc.formatting.compactSingleStatementFunctions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Put functions whose body is a single simple statement on one line, e.g. `int query_level() { return level; }`",
+          "scope": "resource"
         }
       }
     }
