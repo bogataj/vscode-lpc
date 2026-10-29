@@ -4,6 +4,17 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Breaking
+- `.c` and `.h` files are no longer opened as LPC by default, so C projects are unaffected. Run **LPC: Treat .c/.h Files as LPC in This Workspace** or set `"files.associations": { "*.c": "lpc", "*.h": "lpc" }` in mudlib workspaces
+
+### Added
+- `lpc.formatting.compactSingleStatementFunctions` (default `true`) to keep single-statement functions on several lines
+- **LPC: Treat .c/.h Files as LPC in This Workspace** command
+
+### Changed
+- Operator spacing follows C style throughout: comparison, shift, logical, bitwise, and compound assignment operators, ternaries, mapping and struct keys (`"key": value`), `foreach` colons, and commas before strings are now spaced consistently; unary operators and LPC-specific syntax are left as written
+- README and contributor instructions describe the current behavior more concisely
+
 ## [1.6.0] - 2026-10-29
 
 ### Fixed
