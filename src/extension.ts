@@ -1,19 +1,22 @@
 import * as vscode from 'vscode';
 import { LPCDocumentFormattingEditProvider } from './formatProvider';
 
+// Any scheme, so untitled documents and virtual workspaces are formatted too.
+const lpcDocuments: vscode.DocumentSelector = { language: 'lpc' };
+
 export function activate(context: vscode.ExtensionContext) {
     const lpcFormattingProvider = new LPCDocumentFormattingEditProvider();
 
     context.subscriptions.push(
         vscode.languages.registerDocumentFormattingEditProvider(
-            { scheme: 'file', language: 'lpc' },
+            lpcDocuments,
             lpcFormattingProvider
         )
     );
 
     context.subscriptions.push(
         vscode.languages.registerDocumentRangeFormattingEditProvider(
-            { scheme: 'file', language: 'lpc' },
+            lpcDocuments,
             lpcFormattingProvider
         )
     );

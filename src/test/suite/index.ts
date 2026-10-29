@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { LPCDocumentFormattingEditProvider } from '../../formatProvider';
 import { loadFormatterFixtureTests } from './formatterFixtures';
 import { formattingOptions, withLpcDocument } from './formatTestUtils';
+import { providerTests } from './providerTests';
 
 interface TestCase {
     name: string;
@@ -304,7 +305,8 @@ const integrationTests: TestCase[] = [
 export async function run(): Promise<void> {
     const allTests: TestCase[] = [
         ...await loadFormatterFixtureTests(),
-        ...integrationTests
+        ...integrationTests,
+        ...providerTests
     ];
     const filter = process.env.LPC_TEST_FILTER?.toLowerCase();
     const selectedTests = filter

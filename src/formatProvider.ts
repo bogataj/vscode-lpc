@@ -9,7 +9,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken
     ): vscode.TextEdit[] {
-        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        const config = vscode.workspace.getConfiguration('lpc.formatting', document);
         if (!config.get<boolean>('enabled', true)) {
             return [];
         }
@@ -21,11 +21,15 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const text = document.getText(fullRange);
         const indentSize = this.resolveIndentSize(config.get<number>('indentSize'), options.tabSize);
         let formattedText = this.formatter.format(text, options, indentSize, token);
+        if (token.isCancellationRequested) {
+            return [];
+        }
 
         if (config.get<boolean>('insertFinalNewline', true) && !formattedText.endsWith('\n')) {
             formattedText += '\n';
         }
 
+        formattedText = this.withDocumentLineEndings(formattedText, document);
         if (formattedText === text) {
             return [];
         }
@@ -39,7 +43,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken
     ): vscode.TextEdit[] {
-        const config = vscode.workspace.getConfiguration('lpc.formatting');
+        const config = vscode.workspace.getConfiguration('lpc.formatting', document);
         if (!config.get<boolean>('enabled', true)) {
             return [];
         }
@@ -52,13 +56,20 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         const text = document.getText(formattingRange);
         const indentSize = this.resolveIndentSize(config.get<number>('indentSize'), options.tabSize);
         const initialIndentLevel = this.formatter.getInitialIndentLevel(text, options, indentSize);
-        const formattedText = this.formatter.format(text, options, indentSize, token, initialIndentLevel);
-
-        if (formattedText === text) {
+        const formattedText = this.withDocumentLineEndings(
+            this.formatter.format(text, options, indentSize, token, initialIndentLevel),
+            document
+        );
+        if (token.isCancellationRequested || formattedText === text) {
             return [];
         }
 
         return [vscode.TextEdit.replace(formattingRange, formattedText)];
+    }
+
+    /** The formatter emits LF; match the document so an unchanged CRLF file produces no edit. */
+    private withDocumentLineEndings(text: string, document: vscode.TextDocument): string {
+        return document.eol === vscode.EndOfLine.CRLF ? text.replace(/\r?\n/g, '\r\n') : text;
     }
 
     private expandRangeToFullLines(document: vscode.TextDocument, range: vscode.Range): vscode.Range {
