@@ -84,7 +84,8 @@
     "watch": "npm run clean && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "tsc -p ./ --noEmit && tsc -p scripts",
-    "test": "node ./out/test/runTest.js",
+    "test": "node --test out/test/unit/formatter.test.js && node ./out/test/runTest.js",
+    "test:unit": "npm run compile && node --test out/test/unit/formatter.test.js",
     "package": "npm run compile && node scripts/package-vsix.mjs",
     "install:dev": "npm run package -- --out lpc-ldmud-lp245-dev.vsix && code --install-extension lpc-ldmud-lp245-dev.vsix --force"
   },
