@@ -1,0 +1,9 @@
+void measure(float offset) {
+    float small = 1.5e-3;
+    float large = 2e+4;
+    float fraction = .5E-2 + offset;
+    float shifted = 1.5e-3 - offset;
+    int difference = count - 1;
+    int combined = 0x1e - 3;
+    int named = value2e - 3;
+}
