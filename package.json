@@ -77,7 +77,7 @@
     "compile": "npm run clean && tsc -p ./",
     "watch": "npm run clean && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
     "install:dev": "npm run package -- --out lpc-ldmud-lp245-dev.vsix && code --install-extension lpc-ldmud-lp245-dev.vsix --force"

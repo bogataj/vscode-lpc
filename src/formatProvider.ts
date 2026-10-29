@@ -61,7 +61,9 @@ const LPC_FUNCTION_DECLARATION_PATTERN = new RegExp(
 const LPC_SPLIT_POINTER_RETURN_PATTERN = new RegExp(
     `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+\\*+\\s*$`
 );
-const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN = new RegExp(`^(?:${LPC_DECLARATION_TYPE_PATTERN})\\*?$`);
+// Prevents binary +/- spacing from splitting the exponent of a float literal such as 1.5e-3.
+const NOT_FLOAT_EXPONENT_SIGN = '(?!(?<=(?:^|[^\\w.])(?:\\d+(?:\\.\\d*)?|\\.\\d+))[eE][+-]\\d)';
+const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN =new RegExp(`^(?:${LPC_DECLARATION_TYPE_PATTERN})\\*?$`);
 
 class CharacterScanner {
     inString = false;
@@ -1706,10 +1708,18 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         
         normalized = this.replaceOutsideProtectedText(normalized, /\s{2,}\+/g, ' +');
         
-        normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])\+([a-zA-Z0-9_"({])/g, '$1 + $2');
+        normalized = this.replaceOutsideProtectedText(
+            normalized,
+            new RegExp(`${NOT_FLOAT_EXPONENT_SIGN}([a-zA-Z0-9_")\\]}])\\+([a-zA-Z0-9_"({])`, 'g'),
+            '$1 + $2'
+        );
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}]) \+([a-zA-Z0-9_"({])/g, '$1 + $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])\+ ([a-zA-Z0-9_"({])/g, '$1 + $2');
-        normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_")\]}])-([a-zA-Z0-9_"({])/g, '$1 - $2');
+        normalized = this.replaceOutsideProtectedText(
+            normalized,
+            new RegExp(`${NOT_FLOAT_EXPONENT_SIGN}([a-zA-Z0-9_")\\]}])-([a-zA-Z0-9_"({])`, 'g'),
+            '$1 - $2'
+        );
         normalized = this.normalizeMultiplicationSpacing(normalized);
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_)\]}])\/([a-zA-Z0-9_({])/g, '$1 / $2');
         normalized = this.replaceOutsideProtectedText(normalized, /([a-zA-Z0-9_)\]}])%([a-zA-Z0-9_({])/g, '$1 % $2');
@@ -1775,10 +1785,13 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN}|<[^;{}]+>)$`
         );
         const structuralPrefix = this.stripCommentsAndStrings(prefix);
+        // Parameter lists and foreach headers start a declaration after '(' or ','.
         const lastStatementBoundary = Math.max(
             structuralPrefix.lastIndexOf('{'),
             structuralPrefix.lastIndexOf('}'),
-            structuralPrefix.lastIndexOf(';')
+            structuralPrefix.lastIndexOf(';'),
+            structuralPrefix.lastIndexOf('('),
+            structuralPrefix.lastIndexOf(',')
         );
         return declarationTypePattern.test(structuralPrefix.substring(lastStatementBoundary + 1).trim());
     }

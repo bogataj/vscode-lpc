@@ -4,6 +4,11 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Pointer types in parameter lists, `foreach` headers, and inline closure parameters keep their `type *name` layout instead of being spaced as multiplication
+- Float literals with signed exponents such as `1.5e-3` are no longer split by operator spacing
+- `npm run lint` now lints every TypeScript file under `src/` regardless of shell glob expansion
+
 ### Changed
 - Formatter test fixtures were sanitized to neutral identifiers and text that only exercise the rule under test
 

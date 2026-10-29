@@ -1,0 +1,13 @@
+string *collect(string *names, mixed *values, int count) {
+foreach (string *row : values) {
+record(row);
+}
+closure check = function int(int *items) { return sizeof(items); };
+mixed copy = (string *)names;
+return names;
+}
+
+int scale(int width, int height) {
+int area = width*height;
+return compute(area, (width)*count, sizeof(values)*2);
+}
