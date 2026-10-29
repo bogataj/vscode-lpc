@@ -1,18 +1,18 @@
 void configure() {
     items = ({
-        "first","First part " +
-                "second part " +
-                "third part.",
-        ({"second","alias"}),"Second value " +
-                             "continues here.",
-        "third","Third value " +
+        "first", "First part " +
+                 "second part " +
+                 "third part.",
+        ({"second", "alias"}), "Second value " +
+                               "continues here.",
+        "third", "Third value " +
         /* local note */
 
-                "survives trivia.",
+                 "survives trivia.",
     });
     labels = ([
-        "key":"Mapping value " +
-              "continues here.",
+        "key": "Mapping value " +
+               "continues here.",
     ]);
     mixed values = (<
         "multiset value " +

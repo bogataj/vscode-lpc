@@ -11,6 +11,20 @@ interface StructuralToken {
 
 type LPCStructureDelimiter = '}' | ']' | '>';
 
+interface SpacingToken {
+    text: string;
+    kind: 'word' | 'number' | 'operand' | 'comment' | 'punct';
+    /** Whitespace that preceded the token in the source line. */
+    space: string;
+}
+
+interface SpacingFrame {
+    kind: 'root' | 'paren' | 'index' | 'brace' | 'array' | 'mapping' | 'multiset' | 'struct' | 'closure';
+    pendingTernaries: number;
+    pendingCase: boolean;
+    foreachHeader: boolean;
+}
+
 interface SpecialLineResult {
     handled: boolean;
     output?: string | string[];
@@ -59,6 +73,20 @@ const LPC_FUNCTION_DECLARATION_PATTERN = new RegExp(
 const LPC_SPLIT_POINTER_RETURN_PATTERN = new RegExp(
     `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+\\*+\\s*$`
 );
+// Operator spacing follows common C style, since LPC has no style guide of its own.
+const SPACING_PUNCTUATORS = [
+    '>>>=', '<<=', '>>=', '&&=', '||=', '>>>', '...', '->', '::', '..', '++', '--', '==', '!=', '<=', '>=',
+    '<<', '>>', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '({', '([', '(<', '(:', ':)'
+];
+const SPACED_BINARY_OPERATORS = new Set([
+    '=', '==', '!=', '<', '>', '<=', '>=', '<<', '>>', '>>>', '&&', '||', '&', '|', '^', '+', '-', '/', '%',
+    '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=', '>>>=', '&&=', '||='
+]);
+const KEYWORDS_BEFORE_OPERAND = new Set(['return', 'case', 'else', 'do', 'yield', 'await', 'throw']);
+const LPC_TYPE_WORDS = new Set([...LPC_SIMPLE_TYPE_PATTERN.split('|'), 'struct']);
+const CLOSURE_REFERENCE = /^#'(?:\[\.\.|\[|[?=!<>+\-*/%&|^~.]+|[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?)/;
+const NUMBER_LITERAL = /^(?:0[xX][0-9a-fA-F]+|0[bB][01]+|(?:\d+(?:\.(?!\.)\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/;
+
 // Prevents binary +/- spacing from splitting the exponent of a float literal such as 1.5e-3.
 const NOT_FLOAT_EXPONENT_SIGN = '(?!(?<=(?:^|[^\\w.])(?:\\d+(?:\\.\\d*)?|\\.\\d+))[eE][+-]\\d)';
 const LPC_TYPE_WITH_OPTIONAL_POINTER_PATTERN = new RegExp(`^(?:${LPC_DECLARATION_TYPE_PATTERN})\\*?$`);
@@ -576,7 +604,10 @@ export class LPCFormatter {
                 commentPart = ' ' + trimmed.substring(lineCommentIndex);
             }
             
-            let normalizedTrimmed = this.normalizeSpacing(codepart);
+            let normalizedTrimmed = this.normalizeSpacing(
+                codepart,
+                lpcStructureStack[lpcStructureStack.length - 1]
+            );
             
             const previousHasTernary = this.stripCommentsAndStrings(previousLine).includes('?');
             const currentStartsWithColon = trimmed.startsWith(':');
@@ -1583,7 +1614,7 @@ export class LPCFormatter {
         return { handled: false };
     }
 
-    private normalizeSpacing(code: string): string {
+    private normalizeSpacing(code: string, enclosingStructure?: LPCStructureDelimiter): string {
         let normalized = this.replaceOutsideProtectedText(code, /,\s{2,}/g, ', ');
 
         normalized = this.replaceOutsideProtectedText(
@@ -1680,8 +1711,295 @@ export class LPCFormatter {
             const contentNormalized = content.replace(/\s{2,}/g, ' ');
             return `(: ${contentNormalized} :)`;
         });
-        
-        return normalized;
+
+        return this.normalizeOperatorSpacing(normalized, enclosingStructure);
+    }
+
+    /**
+     * Applies C-style operator spacing from a token stream, so context decides
+     * spacing: unary vs. binary operators, ternary vs. mapping/case/foreach
+     * colons, union types, type groups, reverse indexes, and struct literals.
+     * Only whitespace between tokens changes; strings, comments, and closure
+     * references are opaque, and `*` keeps the pointer-aware handling above.
+     */
+    private normalizeOperatorSpacing(code: string, enclosingStructure?: LPCStructureDelimiter): string {
+        const tokens = this.tokenizeForSpacing(code);
+        if (tokens.length < 2) {
+            return code;
+        }
+
+        const rootKind: SpacingFrame['kind'] = enclosingStructure === ']'
+            ? 'mapping'
+            : enclosingStructure === '>' ? 'struct' : enclosingStructure === '}' ? 'array' : 'root';
+        const frames: SpacingFrame[] = [this.createSpacingFrame(rootKind)];
+        // separators[i] is the whitespace to place before tokens[i]; undefined keeps the original.
+        const separators: Array<string | undefined> = new Array(tokens.length).fill(undefined);
+        const operandEnds = new Array<boolean>(tokens.length).fill(false);
+        const spaceAround = (index: number): void => {
+            if (index > 0) {
+                separators[index] = ' ';
+            }
+            if (index + 1 < tokens.length) {
+                separators[index + 1] = ' ';
+            }
+        };
+        const previousIndex = (index: number): number => {
+            let cursor = index - 1;
+            while (cursor >= 0 && tokens[cursor].kind === 'comment') {
+                cursor--;
+            }
+            return cursor;
+        };
+
+        for (let index = 0; index < tokens.length; index++) {
+            const token = tokens[index];
+            const frame = frames[frames.length - 1];
+            const previous = previousIndex(index);
+            const previousToken = previous >= 0 ? tokens[previous] : undefined;
+            const nextToken = tokens[index + 1];
+            const afterOperand = previous >= 0 && operandEnds[previous];
+
+            if (token.kind === 'word') {
+                if (token.text === 'case' || token.text === 'default') {
+                    frame.pendingCase = true;
+                }
+                operandEnds[index] = !KEYWORDS_BEFORE_OPERAND.has(token.text) && !LPC_TYPE_WORDS.has(token.text);
+                continue;
+            }
+            if (token.kind !== 'punct') {
+                operandEnds[index] = token.kind !== 'comment';
+                continue;
+            }
+
+            switch (token.text) {
+                case '(': {
+                    const paren = this.createSpacingFrame('paren');
+                    paren.foreachHeader = previousToken?.text === 'foreach';
+                    frames.push(paren);
+                    break;
+                }
+                case '[':
+                    frames.push(this.createSpacingFrame('index'));
+                    break;
+                case '{':
+                    frames.push(this.createSpacingFrame('brace'));
+                    break;
+                case '({':
+                    frames.push(this.createSpacingFrame('array'));
+                    break;
+                case '([':
+                    frames.push(this.createSpacingFrame('mapping'));
+                    break;
+                case '(<':
+                    frames.push(this.createSpacingFrame('multiset'));
+                    break;
+                case '(:':
+                    frames.push(this.createSpacingFrame('closure'));
+                    break;
+                case ')':
+                case ':)':
+                    if (frames.length > 1) {
+                        frames.pop();
+                    }
+                    operandEnds[index] = true;
+                    break;
+                case ']':
+                    if (frame.kind === 'index' && frames.length > 1) {
+                        frames.pop();
+                    }
+                    operandEnds[index] = true;
+                    break;
+                case '}':
+                    if (frame.kind === 'brace' && frames.length > 1) {
+                        frames.pop();
+                    }
+                    operandEnds[index] = true;
+                    break;
+                case ',':
+                    separators[index] = '';
+                    if (nextToken) {
+                        separators[index + 1] = ' ';
+                    }
+                    break;
+                case ';':
+                    separators[index] = '';
+                    if (nextToken && nextToken.text !== ';' && nextToken.text !== ')' && nextToken.text !== '}') {
+                        separators[index + 1] = ' ';
+                    }
+                    break;
+                case '?':
+                    frame.pendingTernaries++;
+                    spaceAround(index);
+                    break;
+                case ':':
+                    if (frame.pendingTernaries > 0) {
+                        frame.pendingTernaries--;
+                        spaceAround(index);
+                    } else if (frame.pendingCase || frame.kind === 'mapping' || frame.kind === 'struct') {
+                        frame.pendingCase = false;
+                        separators[index] = '';
+                        if (nextToken) {
+                            separators[index + 1] = ' ';
+                        }
+                    } else if (frame.kind === 'paren' && frame.foreachHeader) {
+                        spaceAround(index);
+                    }
+                    break;
+                case '<': {
+                    const opensTypeGroup = nextToken !== undefined
+                        && (LPC_TYPE_WORDS.has(nextToken.text) || nextToken.text === '<');
+                    if (!opensTypeGroup && afterOperand) {
+                        spaceAround(index);
+                    }
+                    break;
+                }
+                case '>': {
+                    const closesStructName = frame.kind === 'multiset' && previous >= 1
+                        && previousToken?.kind === 'word' && tokens[previousIndex(previous)]?.text === '(<';
+                    if (closesStructName) {
+                        frame.kind = 'struct';
+                        operandEnds[index] = false;
+                    } else if ((frame.kind === 'multiset' || frame.kind === 'struct') && nextToken?.text === ')') {
+                        operandEnds[index] = true;
+                    } else if (previousToken && (LPC_TYPE_WORDS.has(previousToken.text) || previousToken.text === '*')) {
+                        operandEnds[index] = true;
+                    } else if (afterOperand) {
+                        spaceAround(index);
+                    }
+                    break;
+                }
+                case '|': {
+                    const typeBefore = previousToken !== undefined
+                        && (LPC_TYPE_WORDS.has(previousToken.text) || previousToken.text === '*' || previousToken.text === '>');
+                    const typeAfter = nextToken !== undefined
+                        && (LPC_TYPE_WORDS.has(nextToken.text) || nextToken.text === '<');
+                    if (typeBefore && typeAfter) {
+                        separators[index] = '';
+                        separators[index + 1] = '';
+                    } else {
+                        spaceAround(index);
+                    }
+                    break;
+                }
+                case '-':
+                case '+':
+                case '&':
+                    if (previous < 0) {
+                        // A leading operator on a continuation line may be binary; keep it as written.
+                        break;
+                    }
+                    if (afterOperand) {
+                        spaceAround(index);
+                    } else if (nextToken) {
+                        separators[index + 1] = '';
+                    }
+                    break;
+                case '*': {
+                    // Types, `struct Name`, and closed type groups make `*` a pointer declarator.
+                    const declaresPointer = previousToken?.text === '>'
+                        || (previousToken?.kind === 'word' && tokens[previousIndex(previous)]?.text === 'struct');
+                    if (afterOperand && !declaresPointer) {
+                        spaceAround(index);
+                    }
+                    break;
+                }
+                case '!':
+                case '~':
+                    if (nextToken) {
+                        separators[index + 1] = '';
+                    }
+                    break;
+                case '++':
+                case '--':
+                    operandEnds[index] = afterOperand;
+                    break;
+                default:
+                    if (SPACED_BINARY_OPERATORS.has(token.text)) {
+                        spaceAround(index);
+                    }
+            }
+        }
+
+        let result = tokens[0].space + tokens[0].text;
+        for (let index = 1; index < tokens.length; index++) {
+            let separator = separators[index] ?? tokens[index].space;
+            if (separator === '' && tokens[index].space !== ''
+                && this.tokensMergeWhenJoined(tokens[index - 1], tokens[index])) {
+                separator = tokens[index].space;
+            }
+            result += separator + tokens[index].text;
+        }
+        return result;
+    }
+
+    private createSpacingFrame(kind: SpacingFrame['kind']): SpacingFrame {
+        return { kind, pendingTernaries: 0, pendingCase: false, foreachHeader: false };
+    }
+
+    /** Whether removing the whitespace between two tokens would change how they tokenize. */
+    private tokensMergeWhenJoined(left: SpacingToken, right: SpacingToken): boolean {
+        const joined = this.tokenizeForSpacing(left.text + right.text);
+        return joined.length !== 2 || joined[0].text !== left.text || joined[1].text !== right.text;
+    }
+
+    private tokenizeForSpacing(code: string): SpacingToken[] {
+        const mask = this.computeProtectedMask(code);
+        const tokens: SpacingToken[] = [];
+        let space = '';
+        let index = 0;
+        const push = (text: string, kind: SpacingToken['kind']): void => {
+            tokens.push({ text, kind, space });
+            space = '';
+            index += text.length;
+        };
+
+        while (index < code.length) {
+            if (mask[index]) {
+                let end = index;
+                while (end < code.length && mask[end]) {
+                    end++;
+                }
+                const text = code.slice(index, end);
+                push(text, text.startsWith('/') ? 'comment' : 'operand');
+                continue;
+            }
+
+            const char = code[index];
+            if (char === ' ' || char === '\t') {
+                space += char;
+                index++;
+                continue;
+            }
+
+            const rest = code.slice(index);
+            const closureReference = CLOSURE_REFERENCE.exec(rest);
+            if (closureReference) {
+                push(closureReference[0], 'operand');
+                continue;
+            }
+            const symbol = /^'+[A-Za-z_]\w*/.exec(rest) ?? /^\$\d+/.exec(rest);
+            if (symbol) {
+                push(symbol[0], 'operand');
+                continue;
+            }
+            if (!rest.startsWith('..')) {
+                const number = NUMBER_LITERAL.exec(rest);
+                if (number) {
+                    push(number[0], 'number');
+                    continue;
+                }
+            }
+            const word = /^[A-Za-z_]\w*/.exec(rest);
+            if (word) {
+                push(word[0], 'word');
+                continue;
+            }
+
+            const punctuator = SPACING_PUNCTUATORS.find(candidate => rest.startsWith(candidate));
+            push(punctuator ?? char, 'punct');
+        }
+
+        return tokens;
     }
 
     private normalizeMultiplicationSpacing(code: string): string {
