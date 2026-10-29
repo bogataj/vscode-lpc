@@ -8,7 +8,7 @@ VS Code extension providing language support for **LPC (Lars Pensjö C)** target
 
 ## Build & Development Commands
 
-Use Node.js 20.19 or newer.
+Use Node.js 24.11 or newer.
 
 ```bash
 npm run compile       # Compile TypeScript to out/

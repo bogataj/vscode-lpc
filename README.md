@@ -99,7 +99,7 @@ Customize the formatter through VS Code settings:
 
 ## Development
 
-Development requires Node.js 20.19 or newer:
+Development requires Node.js 24.11 or newer:
 
 ```bash
 git clone https://github.com/bogataj/vscode-lpc

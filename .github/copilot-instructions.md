@@ -6,7 +6,7 @@ This is a VS Code language extension for LPC as implemented by LDMUD and used by
 
 ## Build, lint, and validation
 
-Use Node.js 20.19 or newer.
+Use Node.js 24.11 or newer.
 
 ```powershell
 npm install          # Install development dependencies
