@@ -4,6 +4,8 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-29
+
 ### Breaking
 - `.c` and `.h` files are no longer opened as LPC by default, so C projects are unaffected. Run **LPC: Treat .c/.h Files as LPC in This Workspace** or set `"files.associations": { "*.c": "lpc", "*.h": "lpc" }` in mudlib workspaces
 
