@@ -15,7 +15,8 @@ npm run compile       # Compile TypeScript to out/
 npm run watch         # Compile in watch mode
 npm run lint          # Strict tsc checks for src/ and scripts/ (no ESLint)
 npm run test          # Run tests (compiles + lints first via pretest)
-npm test -- "name"    # Run tests whose names contain the given text
+npm test -- "name"    # Run Extension Host tests whose names contain the given text
+npm run test:unit     # Run formatter fixtures against the core in plain Node (fast)
 npm run package       # Build the .vsix with scripts/package-vsix.mjs (no vsce)
 ```
 
@@ -29,7 +30,9 @@ The extension has a small runtime plus an Extension Host test harness:
 
 - **`src/extension.ts`** — Entry point. Registers the formatting provider for document and range formatting, plus the `lpc.format` command. Activates on `onLanguage:lpc`.
 
-- **`src/formatProvider.ts`** (~2,600 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
+- **`src/formatter.ts`** (~2,600 lines) — The core of the extension: `LPCFormatter`, with no VS Code dependency. `format()` is the line-by-line state machine; `getInitialIndentLevel()` and `startsInsideProtectedContext()` support range formatting.
+
+- **`src/formatProvider.ts`** — Thin VS Code adapter. `LPCDocumentFormattingEditProvider` reads settings for the document, expands ranges to whole lines, delegates to `LPCFormatter`, and converts output to the document's line endings.
 
 - **`src/test/runTest.ts` / `src/test/vscodeTestHost.ts` / `src/test/suite/index.ts`** — Resolve a VS Code build from the official update service, verify its SHA-256, extract it into `.vscode-test/`, and run dependency-free integration tests. Test names can be filtered with the argument passed to `npm test --`; `VSCODE_TEST_VERSION=1.74.0` pins a specific VS Code version.
 
@@ -64,7 +67,7 @@ Defined in `package.json` under `contributes.configuration`:
 
 ## Testing Approach
 
-`npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, and grammar patterns. Formatter regressions are auto-discovered from sanitized input/expected pairs in `src/test/fixtures/formatter/`; every pair must match exactly and converge after one formatting pass. The first run downloads a cached VS Code test build into `.vscode-test/`.
+`npm test` first runs `src/test/unit/formatter.test.ts` with `node:test` (every fixture against `LPCFormatter`, plus a guard that preprocessor analysis stays linear), then launches an isolated Extension Development Host that covers formatter edge cases, range indentation, language configuration, and grammar patterns. Formatter regressions are auto-discovered from sanitized input/expected pairs in `src/test/fixtures/formatter/`; every pair must match exactly and converge after one formatting pass. The first run downloads a cached VS Code test build into `.vscode-test/`.
 
 Files under `out/` are generated and ignored by Git. `npm run compile` creates them for development, and `npm run package` rebuilds them before packaging. Test output under `out/test/` is excluded from the VSIX.
 
