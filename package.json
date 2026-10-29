@@ -45,6 +45,12 @@
       "command": "lpc.format",
       "title": "Format LPC Code"
     }],
+    "menus": {
+      "commandPalette": [{
+        "command": "lpc.format",
+        "when": "editorLangId == lpc"
+      }]
+    },
     "configuration": {
       "type": "object",
       "title": "LPC",
