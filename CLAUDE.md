@@ -13,11 +13,13 @@ Use Node.js 20.19 or newer.
 ```bash
 npm run compile       # Compile TypeScript to out/
 npm run watch         # Compile in watch mode
-npm run lint          # ESLint on src/**/*.ts
+npm run lint          # Strict tsc checks for src/ and scripts/ (no ESLint)
 npm run test          # Run tests (compiles + lints first via pretest)
 npm test -- "name"    # Run tests whose names contain the given text
-npm run package       # Build .vsix extension package with vsce
+npm run package       # Build the .vsix with scripts/package-vsix.mjs (no vsce)
 ```
+
+Keep external dependencies to the minimum: the only devDependencies are `typescript`, `@types/node`, and `@types/vscode`. Packaging (`scripts/package-vsix.mjs`) and the VS Code test host (`src/test/vscodeTestHost.ts`) are in-repo, dependency-free replacements for `@vscode/vsce` and `@vscode/test-electron`. Do not add npm packages for tooling that Node's standard library can cover.
 
 **Debug:** Press F5 in VS Code to compile and launch an Extension Development Host.
 
@@ -27,9 +29,11 @@ The extension has a small runtime plus an Extension Host test harness:
 
 - **`src/extension.ts`** — Entry point. Registers the formatting provider for document and range formatting, plus the `lpc.format` command. Activates on `onLanguage:lpc`.
 
-- **`src/formatProvider.ts`** (~1,800 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
+- **`src/formatProvider.ts`** (~2,600 lines) — The core of the extension. Implements `LPCDocumentFormattingEditProvider` with two public methods (`provideDocumentFormattingEdits`, `provideDocumentRangeFormattingEdits`) that delegate to the private `formatLPCCode()` state machine.
 
-- **`src/test/runTest.ts` / `src/test/suite/index.ts`** — Launch VS Code through `@vscode/test-electron` and run dependency-free integration tests. Test names can be filtered with the argument passed to `npm test --`.
+- **`src/test/runTest.ts` / `src/test/vscodeTestHost.ts` / `src/test/suite/index.ts`** — Resolve a VS Code build from the official update service, verify its SHA-256, extract it into `.vscode-test/`, and run dependency-free integration tests. Test names can be filtered with the argument passed to `npm test --`; `VSCODE_TEST_VERSION=1.74.0` pins a specific VS Code version.
+
+- **`scripts/package-vsix.mjs`** — Builds the VSIX from an explicit allowlist derived from `package.json` (main, compiled `out/**/*.js` except tests, language configuration, grammars, README, CHANGELOG, LICENSE) and generates the same manifest as vsce. Output is reproducible.
 
 - **`syntaxes/lpc.tmGrammar.json`** — TextMate grammar for syntax highlighting. Covers LDMUD-specific efuns, applies, closures, lambdas, data types, and preprocessor directives.
 
@@ -62,7 +66,7 @@ Defined in `package.json` under `contributes.configuration`:
 
 `npm test` launches an isolated Extension Development Host and covers formatter edge cases, range indentation, language configuration, and grammar patterns. Formatter regressions are auto-discovered from sanitized input/expected pairs in `src/test/fixtures/formatter/`; every pair must match exactly and converge after one formatting pass. The first run downloads a cached VS Code test build into `.vscode-test/`.
 
-Files under `out/` are generated and ignored by Git. `npm run compile` creates them for development, and `vscode:prepublish` rebuilds them before packaging. Test output under `out/test/` is excluded from the VSIX.
+Files under `out/` are generated and ignored by Git. `npm run compile` creates them for development, and `npm run package` rebuilds them before packaging. Test output under `out/test/` is excluded from the VSIX.
 
 ## LPC Language Specifics
 

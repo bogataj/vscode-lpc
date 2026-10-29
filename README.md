@@ -112,7 +112,16 @@ npm run package
 ```
 
 Build output under `out/` is generated locally and is not committed. Packaging
-rebuilds it automatically through the `vscode:prepublish` script.
+rebuilds it automatically.
+
+The toolchain deliberately keeps external dependencies to a minimum: the only
+devDependencies are `typescript`, `@types/node`, and `@types/vscode`, none of
+which pull in further runtime packages. Type checking replaces ESLint,
+`scripts/package-vsix.mjs` builds a reproducible VSIX from an explicit file
+allowlist instead of `vsce`, and `src/test/vscodeTestHost.ts` downloads VS Code
+from the official update service, verifies its SHA-256 checksum, and launches
+the tests instead of `@vscode/test-electron`. Set `VSCODE_TEST_VERSION` (for
+example `1.74.0`) to test against a specific VS Code version.
 
 GitHub releases are created only by dispatching the `Release` workflow with an
 existing `vX.Y.Z` tag whose version matches `package.json`. After the main CI
@@ -122,7 +131,9 @@ scripts, verifies npm signatures, runs the dependency audit and complete test
 suite, and packages the VSIX before publishing the GitHub release. Dependency
 versions are pinned in `package.json` and `package-lock.json`; updates must be
 intentional and reviewed. Marketplace publication remains a separate manual
-step.
+step: upload the VSIX attached to the GitHub release on the Marketplace
+publisher management page, or run
+`npx @vscode/vsce publish --packagePath <file.vsix>` with a publisher token.
 
 Run one integration test by passing part of its name:
 
@@ -153,4 +164,4 @@ MIT License - see LICENSE file for details.
 
 ## Changelog
 
-For complete version history, bug fixes, and new features, see [CHANGELOG.md](CHANGELOG.md).
+For complete version history, bug fixes, and new features, see [CHANGELOG.md](https://github.com/bogataj/vscode-lpc/blob/HEAD/CHANGELOG.md).

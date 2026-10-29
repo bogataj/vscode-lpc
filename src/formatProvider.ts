@@ -1743,7 +1743,7 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         
         normalized = this.replaceOutsideProtectedText(normalized, /\(:\s+/g, '(: ');
         normalized = this.replaceOutsideProtectedText(normalized, /\s+:\)/g, ' :)');
-        normalized = this.replaceOutsideProtectedText(normalized, /\(:\s+(.+?)\s+:\)/g, (match, content) => {
+        normalized = this.replaceOutsideProtectedText(normalized, /\(:\s+(.+?)\s+:\)/g, (_match, content) => {
             const contentNormalized = content.replace(/\s{2,}/g, ' ');
             return `(: ${contentNormalized} :)`;
         });
