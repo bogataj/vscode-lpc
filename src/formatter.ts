@@ -1046,6 +1046,9 @@ export class LPCFormatter {
         const preprocessor = this.analyzePreprocessorLines(lines);
         const continuationLines = preprocessor.continuationLines;
         const lineCommentContinuationLines = preprocessor.lineCommentContinuationLines;
+        // The tokenizer only carries state forward, so the tokens of any line prefix
+        // are a prefix of the whole file's tokens; tokenize once instead of per #if.
+        const fileTokens = this.tokenizeStructuralLines(lines);
 
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             if (continuationLines[lineIndex] || lineCommentContinuationLines[lineIndex]) {
@@ -1057,12 +1060,13 @@ export class LPCFormatter {
                 continue;
             }
 
-            const precedingTokens = this.tokenizeStructuralLines(lines.slice(0, lineIndex));
-            const headerEnd = precedingTokens[precedingTokens.length - 1]?.line ?? -1;
+            const precedingTokenCount = this.countTokensBeforeLine(fileTokens, lineIndex);
+            const headerEnd = fileTokens[precedingTokenCount - 1]?.line ?? -1;
             if (continuationLines[headerEnd] || lineCommentContinuationLines[headerEnd]) {
                 continue;
             }
-            const isControlBody = this.isControlHeaderEndingAt(lines, headerEnd);
+            const enclosingHeaderStart = this.findControlHeaderStartInTokens(fileTokens, precedingTokenCount - 1, headerEnd);
+            const isControlBody = enclosingHeaderStart >= 0;
 
             const branches: Array<{ start: number; end: number }> = [];
             let branchStart = lineIndex + 1;
@@ -1138,10 +1142,11 @@ export class LPCFormatter {
                 const pendingHeader = pendingHeaders.reduce((shallowest, current) =>
                     current.depth < shallowest.depth ? current : shallowest
                 );
-                const tailLines = lines.slice(closingDirective + 1);
-                const syntheticLines = [...pendingHeader.lines, ...tailLines];
-                const statementEnd = this.findFirstStatementEndLine(syntheticLines);
-                const syntheticDepths = this.analyzeControlFlow(syntheticLines, false);
+                const { statementEnd, depths: syntheticDepths } = this.analyzeLeadingStatement(
+                    pendingHeader.lines,
+                    lines,
+                    closingDirective + 1
+                );
 
                 for (let syntheticLine = pendingHeader.lines.length;
                     syntheticLine <= statementEnd;
@@ -1154,34 +1159,30 @@ export class LPCFormatter {
                 }
             }
 
-            const enclosingHeaderStart = isControlBody
-                ? this.findControlHeaderStart(lines, headerEnd)
-                : -1;
             const enclosingHeaderLines = enclosingHeaderStart >= 0
                 ? lines.slice(enclosingHeaderStart, headerEnd + 1)
                 : [];
-            const tailLines = lines.slice(closingDirective + 1);
-            const tailTokens = this.tokenizeStructuralLines(tailLines);
             const enclosingTokens = this.tokenizeStructuralLines(enclosingHeaderLines);
             const hasEnclosingIf = enclosingTokens[0]?.value === 'if'
                 || (enclosingTokens[0]?.value === 'else' && enclosingTokens[1]?.value === 'if');
             if (allBranchesAnalyzable && analyzedBranches.length > 0
-                && tailTokens[0]?.value === 'else'
-                && hasEnclosingIf) {
+                && hasEnclosingIf
+                && this.firstTokenFromLine(lines, closingDirective + 1)?.value === 'else') {
+                const tailStartLine = closingDirective + 1;
+                let analyzedTailLength = 0;
                 const tailDepthsByBranch = analyzedBranches.map(branchLines => {
-                    const syntheticLines = [...enclosingHeaderLines, ...branchLines, ...tailLines];
-                    const statementEnd = this.findFirstStatementEndLine(syntheticLines);
-                    const syntheticDepths = this.analyzeControlFlow(syntheticLines, false);
+                    const { statementEnd, depths: syntheticDepths } = this.analyzeLeadingStatement(
+                        [...enclosingHeaderLines, ...branchLines],
+                        lines,
+                        tailStartLine
+                    );
                     const tailStart = enclosingHeaderLines.length + branchLines.length;
-                    return tailLines.map((_line, offset) => {
-                        const syntheticLine = tailStart + offset;
-                        return syntheticLine <= statementEnd
-                            ? syntheticDepths[syntheticLine]
-                            : undefined;
-                    });
+                    const tailLength = Math.max(0, Math.min(lines.length - tailStartLine, statementEnd - tailStart + 1));
+                    analyzedTailLength = Math.max(analyzedTailLength, tailLength);
+                    return Array.from({ length: tailLength }, (_line, offset) => syntheticDepths[tailStart + offset]);
                 });
 
-                for (let offset = 0; offset < tailLines.length; offset++) {
+                for (let offset = 0; offset < analyzedTailLength; offset++) {
                     const branchDepths = tailDepthsByBranch.map(branchDepths => branchDepths[offset]);
                     const commonDepth = branchDepths[0];
                     if (commonDepth !== undefined
@@ -1728,10 +1729,57 @@ export class LPCFormatter {
         return declarationTypePattern.test(structuralPrefix.substring(lastStatementBoundary + 1).trim());
     }
 
-    private findFirstStatementEndLine(lines: string[]): number {
+    /**
+     * Analyzes the first statement of `prefixLines` followed by `lines` from `tailStart`,
+     * reading only as many tail lines as that statement needs. The window grows until
+     * the statement ends before the last token in it, which makes the result identical
+     * to analyzing the whole tail while keeping each #if region's cost local.
+     */
+    private analyzeLeadingStatement(
+        prefixLines: string[],
+        lines: string[],
+        tailStart: number
+    ): { statementEnd: number; depths: number[] } {
+        const tailLength = Math.max(0, lines.length - tailStart);
+        for (let windowSize = 64; ; windowSize *= 4) {
+            const windowLength = Math.min(windowSize, tailLength);
+            const syntheticLines = [...prefixLines, ...lines.slice(tailStart, tailStart + windowLength)];
+            const { line, complete } = this.locateFirstStatementEnd(syntheticLines);
+            if (complete || windowLength === tailLength) {
+                return { statementEnd: line, depths: this.analyzeControlFlow(syntheticLines, false) };
+            }
+        }
+    }
+
+    private firstTokenFromLine(lines: string[], startLine: number): StructuralToken | undefined {
+        for (let windowSize = 16; ; windowSize *= 4) {
+            const window = lines.slice(startLine, startLine + windowSize);
+            const tokens = this.tokenizeStructuralLines(window);
+            if (tokens.length > 0 || startLine + windowSize >= lines.length) {
+                return tokens[0];
+            }
+        }
+    }
+
+    private countTokensBeforeLine(tokens: StructuralToken[], line: number): number {
+        let low = 0;
+        let high = tokens.length;
+        while (low < high) {
+            const middle = (low + high) >>> 1;
+            if (tokens[middle].line < line) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    }
+
+    /** `complete` is false when the statement may continue past the last token of `lines`. */
+    private locateFirstStatementEnd(lines: string[]): { line: number; complete: boolean } {
         const tokens = this.tokenizeStructuralLines(lines);
         if (tokens.length === 0) {
-            return -1;
+            return { line: -1, complete: false };
         }
 
         const findClosingParen = (openIndex: number): number => {
@@ -1819,11 +1867,10 @@ export class LPCFormatter {
         };
 
         const nextIndex = skipStatement(0);
-        return tokens[Math.max(0, Math.min(tokens.length - 1, nextIndex - 1))].line;
-    }
-
-    private isControlHeaderEndingAt(lines: string[], endLine: number): boolean {
-        return this.findControlHeaderStart(lines, endLine) >= 0;
+        return {
+            line: tokens[Math.max(0, Math.min(tokens.length - 1, nextIndex - 1))].line,
+            complete: nextIndex < tokens.length
+        };
     }
 
     private findControlHeaderStart(lines: string[], endLine: number): number {
@@ -1832,8 +1879,15 @@ export class LPCFormatter {
         }
 
         const tokens = this.tokenizeStructuralLines(lines.slice(0, endLine + 1));
-        const lastTokenIndex = tokens.length - 1;
-        if (lastTokenIndex < 0) {
+        return this.findControlHeaderStartInTokens(tokens, tokens.length - 1, endLine);
+    }
+
+    private findControlHeaderStartInTokens(
+        tokens: StructuralToken[],
+        lastTokenIndex: number,
+        endLine: number
+    ): number {
+        if (endLine < 0 || lastTokenIndex < 0) {
             return -1;
         }
         if (tokens[lastTokenIndex].line !== endLine) {
