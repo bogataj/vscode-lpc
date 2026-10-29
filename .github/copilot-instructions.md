@@ -12,24 +12,26 @@ Use Node.js 20.19 or newer.
 npm install          # Install development dependencies
 npm run compile      # Clean and compile src/**/*.ts to generated out/ files
 npm run watch        # Compile continuously
-npm run lint         # ESLint src/**/*.ts
+npm run lint         # Strict tsc checks for src/ and scripts/
 npm test             # Compile, lint, and run Extension Host integration tests
 npm test -- "name"   # Run tests whose names contain the given text
-npm run package      # Build the VSIX with vsce
+npm run package      # Compile and build the VSIX with scripts/package-vsix.mjs
 ```
 
-Press F5 in VS Code to compile and run the extension in an Extension Development Host. The launch configuration loads `out/**/*.js` and invokes the `npm: compile` pre-launch task. Files under `out/` are generated and ignored by Git; `vscode:prepublish` rebuilds them before packaging.
+Press F5 in VS Code to compile and run the extension in an Extension Development Host. The launch configuration loads `out/**/*.js` and invokes the `npm: compile` pre-launch task. Files under `out/` are generated and ignored by Git; `npm run package` rebuilds them before packaging.
 
-`npm test` uses `@vscode/test-electron`; its first run downloads a cached VS Code build into `.vscode-test/`. Formatter cases are sanitized input/expected pairs under `src/test/fixtures/formatter/` and are discovered automatically. Keep each pair focused on one behavior. The runner checks exact output and requires the second formatting pass to be a no-op.
+Keep external dependencies to the minimum. The only devDependencies are `typescript`, `@types/node`, and `@types/vscode`; packaging and the VS Code test host are in-repo replacements for `@vscode/vsce` and `@vscode/test-electron`. Do not add npm packages for tooling that Node's standard library can cover.
+
+`npm test` resolves VS Code from the official update service, verifies the archive's SHA-256, and caches the build in `.vscode-test/`; set `VSCODE_TEST_VERSION` to pin a version. Formatter cases are sanitized input/expected pairs under `src/test/fixtures/formatter/` and are discovered automatically. Keep each pair focused on one behavior. The runner checks exact output and requires the second formatting pass to be a no-op.
 
 ## Architecture
 
 - `package.json` is the integration hub: it activates on the `lpc` language, maps `.lpc`, `.c`, and `.h`, contributes the TextMate grammar and formatter settings, and declares the `lpc.format` command.
 - `src/extension.ts` creates one `LPCDocumentFormattingEditProvider` for both whole-document and range formatting. The command delegates to VS Code's standard `editor.action.formatDocument`.
 - `src/formatProvider.ts` contains the formatter. Its pipeline preprocesses compound lines, performs a lightweight structural pass for brace-less control nesting, handles comments/preprocessor/blank lines, computes indentation from persistent state, separates inline comments, normalizes only unprotected code, updates bracket and LPC-structure stacks, then applies multiline post-processing. Range formatting expands selections to complete lines and seeds the formatter from their existing indentation; whole-document formatting alone applies the configured final newline.
-- `src/test/runTest.ts` launches the Extension Development Host; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/suite/formatterFixtures.ts` discovers formatter fixture pairs.
+- `src/test/runTest.ts` launches the Extension Development Host through `src/test/vscodeTestHost.ts`; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/suite/formatterFixtures.ts` discovers formatter fixture pairs.
 - `syntaxes/lpc.tmGrammar.json` controls tokenization and highlighting only. `language-configuration.json` separately controls comments, bracket pairs, auto-closing, indentation, and folding. Neither drives the formatter.
-- Generated `out/extension.js` is the packaged entry point. `.vscodeignore` excludes TypeScript sources, test output, declarations, source maps, fixtures, and assistant instructions from the VSIX.
+- Generated `out/extension.js` is the packaged entry point. `scripts/package-vsix.mjs` packages only an allowlist derived from `package.json` (compiled `out/**/*.js` except tests, language configuration, grammars, README, CHANGELOG, LICENSE); `.vscodeignore` only matters if vsce is ever run directly.
 
 ## Repository-specific conventions
 

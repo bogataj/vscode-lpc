@@ -6,7 +6,7 @@ out/test/**
 .gitignore
 .github/**
 tsconfig.json
-eslint.config.mjs
+scripts/**
 *.vsix
 out/**/*.d.ts
 out/**/*.map

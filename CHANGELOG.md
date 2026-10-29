@@ -12,6 +12,7 @@ All notable changes to the "LPC Language Support" extension will be documented i
 - `npm run lint` now lints every TypeScript file under `src/` regardless of shell glob expansion
 
 ### Changed
+- Development tooling no longer depends on ESLint, `@vscode/vsce`, or `@vscode/test-electron` (409 → 4 locked packages); strict TypeScript checks, an in-repo reproducible VSIX packager, and a checksum-verifying VS Code test host replace them
 - Formatter test fixtures were sanitized to neutral identifiers and text that only exercise the rule under test
 
 ## [1.5.2] - 2026-09-02

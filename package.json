@@ -77,21 +77,15 @@
     "compile": "npm run clean && tsc -p ./",
     "watch": "npm run clean && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
+    "lint": "tsc -p ./ --noEmit && tsc -p scripts",
     "test": "node ./out/test/runTest.js",
-    "package": "vsce package",
+    "package": "npm run compile && node scripts/package-vsix.mjs",
     "install:dev": "npm run package -- --out lpc-ldmud-lp245-dev.vsix && code --install-extension lpc-ldmud-lp245-dev.vsix --force"
   },
   "devDependencies": {
     "@types/node": "20.19.22",
     "@types/vscode": "1.74.0",
-    "@typescript-eslint/eslint-plugin": "8.67.0",
-    "@typescript-eslint/parser": "8.67.0",
-    "@eslint/js": "10.0.1",
-    "eslint": "10.9.0",
-    "typescript": "5.9.3",
-    "@vscode/test-electron": "2.5.2",
-    "@vscode/vsce": "3.9.2"
+    "typescript": "5.9.3"
   },
   "repository": {
     "type": "git",
