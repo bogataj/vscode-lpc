@@ -1,0 +1,3 @@
+# Store and check out text files with LF on every platform so fixtures,
+# packaged files, and diffs are identical on Windows and Linux.
+* text=auto eol=lf
