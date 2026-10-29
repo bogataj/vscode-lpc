@@ -1,47 +1,66 @@
-# Copilot instructions
+# Repository instructions
 
-## Project scope
+VS Code extension for LPC as implemented by the LDMUD driver (LP-245 mudlib): a TextMate
+grammar, language configuration, and a document/range formatter. The extension claims
+only `.lpc`; mudlib workspaces opt in to `.c`/`.h` through `files.associations`.
 
-This is a VS Code language extension for LPC as implemented by LDMUD and used by the LP-245 mudlib. It provides TextMate syntax highlighting, editor language configuration, and a stateful document/range formatter. Treat `.c` and `.h` files as LPC in this repository, not as C/C++.
-
-## Build, lint, and validation
+## Commands
 
 Use Node.js 24.11 or newer.
 
-```powershell
-npm install          # Install development dependencies
-npm run compile      # Clean and compile src/**/*.ts to generated out/ files
-npm run watch        # Compile continuously
-npm run lint         # Strict tsc checks for src/ and scripts/
-npm test             # Compile, lint, run core unit tests, then Extension Host integration tests
-npm test -- "name"   # Run Extension Host tests whose names contain the given text
-npm run test:unit    # Run formatter fixtures against the core in plain Node
-npm run package      # Compile and build the VSIX with scripts/package-vsix.mjs
+```bash
+npm run compile      # clean and compile src/ to out/ (generated, not committed)
+npm run lint         # strict tsc checks for src/ and scripts/ (there is no ESLint)
+npm test             # compile, lint, core unit tests in Node, then Extension Host tests
+npm test -- "name"   # Extension Host tests whose names contain the text
+npm run test:unit    # formatter fixtures against the core in plain Node
+npm run package      # compile and build the VSIX with scripts/package-vsix.mjs
 ```
 
-Press F5 in VS Code to compile and run the extension in an Extension Development Host. The launch configuration loads `out/**/*.js` and invokes the `npm: compile` pre-launch task. Files under `out/` are generated and ignored by Git; `npm run package` rebuilds them before packaging.
+F5 launches an Extension Development Host. `VSCODE_TEST_VERSION=1.74.0` runs the
+Extension Host tests on an older VS Code.
 
-Keep external dependencies to the minimum. The only devDependencies are `typescript`, `@types/node`, and `@types/vscode`; packaging and the VS Code test host are in-repo replacements for `@vscode/vsce` and `@vscode/test-electron`. Do not add npm packages for tooling that Node's standard library can cover.
+## Layout
 
-`npm test` resolves VS Code from the official update service, verifies the archive's SHA-256, and caches the build in `.vscode-test/`; set `VSCODE_TEST_VERSION` to pin a version. Formatter cases are sanitized input/expected pairs under `src/test/fixtures/formatter/` and are discovered automatically. Keep each pair focused on one behavior. The runner checks exact output and requires the second formatting pass to be a no-op.
+- `src/formatter.ts` — `LPCFormatter`, the formatter core. It must not import `vscode`.
+- `src/formatProvider.ts` — editor adapter: reads settings for the document
+  (`readFormatSettings`), expands ranges to whole lines, converts output to the
+  document's line endings, returns no edits when cancelled.
+- `src/extension.ts` — registers the providers for `{ language: 'lpc' }` and the
+  `lpc.format` and `lpc.associateCFiles` commands.
+- `syntaxes/lpc.tmGrammar.json` — highlighting only. `language-configuration.json` —
+  comments, brackets, auto-closing, indentation, folding. Neither affects formatting.
+- `scripts/package-vsix.mjs` — builds the VSIX from an allowlist derived from
+  `package.json`; `.vscodeignore` only matters if `vsce` is run directly.
+- Tests: `src/test/fixtures/formatter/*.{input,expected}.lpc` are shared by
+  `src/test/unit/formatter.test.ts` (`node:test`) and the Extension Host suite in
+  `src/test/suite/`. `src/test/vscodeTestHost.ts` downloads VS Code, verifies its
+  SHA-256, and launches the tests with a fresh workspace folder.
 
-## Architecture
+## Conventions
 
-- `package.json` is the integration hub: it activates on the `lpc` language, maps `.lpc`, `.c`, and `.h`, contributes the TextMate grammar and formatter settings, and declares the `lpc.format` command.
-- `src/extension.ts` creates one `LPCDocumentFormattingEditProvider` for both whole-document and range formatting. The command delegates to VS Code's standard `editor.action.formatDocument`.
-- `src/formatter.ts` contains the formatter core (`LPCFormatter`) and must not import `vscode`; `src/formatProvider.ts` is the editor adapter that reads settings per document, expands ranges, and converts output to the document's line endings. The core pipeline preprocesses compound lines, performs a lightweight structural pass for brace-less control nesting, handles comments/preprocessor/blank lines, computes indentation from persistent state, separates inline comments, normalizes only unprotected code, updates bracket and LPC-structure stacks, then applies multiline post-processing. Range formatting expands selections to complete lines and seeds the formatter from their existing indentation; whole-document formatting alone applies the configured final newline.
-- `src/test/runTest.ts` launches the Extension Development Host through `src/test/vscodeTestHost.ts`; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/fixtures.ts` discovers formatter fixture pairs for both `src/test/unit/formatter.test.ts` (plain Node) and `src/test/suite/formatterFixtures.ts` (Extension Host).
-- `syntaxes/lpc.tmGrammar.json` controls tokenization and highlighting only. `language-configuration.json` separately controls comments, bracket pairs, auto-closing, indentation, and folding. Neither drives the formatter.
-- Generated `out/extension.js` is the packaged entry point. `scripts/package-vsix.mjs` packages only an allowlist derived from `package.json` (compiled `out/**/*.js` except tests, language configuration, grammars, README, CHANGELOG, LICENSE); `.vscodeignore` only matters if vsce is ever run directly.
-
-## Repository-specific conventions
-
-- Preserve text inside strings, character literals, and comments while treating quoted symbols such as `'name` as code. Reuse `CharacterScanner`, `replaceOutsideProtectedText()`, `stripCommentsAndStrings()`, and the comment-finding helpers rather than applying regex replacements to an entire raw line.
-- Treat LPC structures `({ ... })`, `([ ... ])`, and `(< ... >)` separately from ordinary braces/brackets. Keep all three opener/closer forms synchronized in bracket-stack, indentation, and continuation logic. `#'[` is an operator function reference, not an opening bracket.
-- State-update order in `formatLPCCode()` is significant. Indentation is chosen from the structural analysis and current stacks before the formatted line updates brace, LPC-structure, continuation, switch/case, and comment state. Comments, blank lines, and preprocessor directives must not discard an open statement or delimiter context.
-- Preserve LDMUD formatting behavior: switch `case` labels use `-cli0` alignment, function and control braces use K&R/brace-right style when they can be moved safely, one-line functions/control statements stay intact, brace-less bodies remain brace-less, and backslash-continued strings and macros retain their content. Four spaces is the default, but the provider must honor VS Code's `insertSpaces`, `tabSize`, and `lpc.formatting.indentSize`.
-- Keep formatting idempotent: one pass must converge, especially for nested closures, mappings, multisets, lambdas, continuation lines, and closing sequences such as `}));`.
-- Grammar rule order prevents overlapping regexes. Keep operators ordered from specific to general (arrow, compound assignment, shifts, comparison, logical, bitwise, arithmetic, bare assignment, ternary), and keep float matching before decimal matching. Recursive LPC structures and lambdas use `$self`.
-- A single quote starts LPC character, symbol, or function-reference syntax. Do not add single-quote auto-closing; it intentionally appears only as a surrounding pair.
-- LPC type and modifier lists are centralized as formatter regex constants but remain duplicated in the TextMate grammar. When adding one, update both `syntaxes/lpc.tmGrammar.json` and `src/formatter.ts`, including cast, declaration, and closure post-processing patterns.
-- Formatter settings must stay synchronized between `package.json` contributions and the reads in both formatting-provider entry points.
+- Dependencies: only `typescript`, `@types/node`, and `@types/vscode`. Do not add npm
+  packages for tooling that Node's standard library can cover.
+- Fixtures use neutral identifiers, focus on one behavior, must match exactly, and must
+  be unchanged by a second formatting pass.
+- Never change text in strings, character literals, or comments. Quoted symbols
+  (`'name`) and closure references (`#'name`, `#'[`) are code. Use `CharacterScanner`,
+  `computeProtectedMask()`, `replaceOutsideProtectedText()`, and
+  `stripCommentsAndStrings()` rather than regexes over raw lines.
+- Treat `({ })`, `([ ])`, and `(< >)` separately from ordinary brackets and keep all
+  three in sync in the bracket-stack, indentation, and continuation logic.
+- In `format()`, indentation is decided before the line updates brace, structure,
+  continuation, switch, and comment state. Comments, blank lines, and preprocessor
+  directives must not drop an open statement or delimiter context.
+- Layout rules: brace placement is preserved; brace-less bodies stay brace-less;
+  `case` labels align with their `switch`; one-line statements are kept;
+  single-statement functions are compacted unless
+  `lpc.formatting.compactSingleStatementFunctions` is false.
+- Spacing is C style, applied by the token pass `normalizeOperatorSpacing()`; it may
+  only change whitespace between tokens and must leave LPC syntax (`int|string`,
+  `<int|string>*`, `[<1..<2]`, `#'>`, `(<Foo>`) alone.
+- `lpc.formatting.indentSize` (default 4) takes precedence over the editor tab size;
+  with tabs, each level is one tab.
+- Keep the type and modifier lists in `src/formatter.ts` and the grammar in sync.
+  Grammar operator rules go from specific to general; floats match before decimals.
+- Do not auto-close single quotes: `'` also starts symbols and closure references.
