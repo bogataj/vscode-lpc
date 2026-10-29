@@ -4,6 +4,22 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Folder-level `lpc.formatting.*` settings now apply in multi-root workspaces
+- Formatting a CRLF file that is already formatted no longer produces an edit, and formatted CRLF files keep CRLF line endings
+- Cancelled formatting requests return no edits
+- Untitled LPC documents and files in virtual workspaces can be formatted
+- Efun and apply names used as variables (for example `id`, `time`, `map`) are no longer highlighted as functions
+
+### Added
+- Syntax highlighting for the 68 efuns documented by current LDMUD that were missing, including `configure_*`, `interactive_info`, `driver_info`, `to_bytes`/`to_text`, `hash`/`hmac`, `json_*`, and the TLS, database, lwobject, and struct helpers
+
+### Changed
+- Formatting files with many `#if` blocks is now linear in file size instead of quadratic (17,600 lines with 800 `#ifdef`: 4.6 s → 0.12 s)
+- "Format LPC Code" only appears in the Command Palette for LPC editors
+- The formatter core is independent of the VS Code API and its fixtures also run in plain Node (`npm run test:unit`)
+- Development and CI use Node.js 24 LTS; CI also tests on Windows and against VS Code 1.74.0
+
 ## [1.5.3] - 2026-10-29
 
 ### Fixed

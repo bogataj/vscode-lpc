@@ -13,8 +13,9 @@ npm install          # Install development dependencies
 npm run compile      # Clean and compile src/**/*.ts to generated out/ files
 npm run watch        # Compile continuously
 npm run lint         # Strict tsc checks for src/ and scripts/
-npm test             # Compile, lint, and run Extension Host integration tests
-npm test -- "name"   # Run tests whose names contain the given text
+npm test             # Compile, lint, run core unit tests, then Extension Host integration tests
+npm test -- "name"   # Run Extension Host tests whose names contain the given text
+npm run test:unit    # Run formatter fixtures against the core in plain Node
 npm run package      # Compile and build the VSIX with scripts/package-vsix.mjs
 ```
 
@@ -28,8 +29,8 @@ Keep external dependencies to the minimum. The only devDependencies are `typescr
 
 - `package.json` is the integration hub: it activates on the `lpc` language, maps `.lpc`, `.c`, and `.h`, contributes the TextMate grammar and formatter settings, and declares the `lpc.format` command.
 - `src/extension.ts` creates one `LPCDocumentFormattingEditProvider` for both whole-document and range formatting. The command delegates to VS Code's standard `editor.action.formatDocument`.
-- `src/formatProvider.ts` contains the formatter. Its pipeline preprocesses compound lines, performs a lightweight structural pass for brace-less control nesting, handles comments/preprocessor/blank lines, computes indentation from persistent state, separates inline comments, normalizes only unprotected code, updates bracket and LPC-structure stacks, then applies multiline post-processing. Range formatting expands selections to complete lines and seeds the formatter from their existing indentation; whole-document formatting alone applies the configured final newline.
-- `src/test/runTest.ts` launches the Extension Development Host through `src/test/vscodeTestHost.ts`; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/suite/formatterFixtures.ts` discovers formatter fixture pairs.
+- `src/formatter.ts` contains the formatter core (`LPCFormatter`) and must not import `vscode`; `src/formatProvider.ts` is the editor adapter that reads settings per document, expands ranges, and converts output to the document's line endings. The core pipeline preprocesses compound lines, performs a lightweight structural pass for brace-less control nesting, handles comments/preprocessor/blank lines, computes indentation from persistent state, separates inline comments, normalizes only unprotected code, updates bracket and LPC-structure stacks, then applies multiline post-processing. Range formatting expands selections to complete lines and seeds the formatter from their existing indentation; whole-document formatting alone applies the configured final newline.
+- `src/test/runTest.ts` launches the Extension Development Host through `src/test/vscodeTestHost.ts`; `src/test/suite/index.ts` contains non-fixture integration checks and substring filtering; `src/test/fixtures.ts` discovers formatter fixture pairs for both `src/test/unit/formatter.test.ts` (plain Node) and `src/test/suite/formatterFixtures.ts` (Extension Host).
 - `syntaxes/lpc.tmGrammar.json` controls tokenization and highlighting only. `language-configuration.json` separately controls comments, bracket pairs, auto-closing, indentation, and folding. Neither drives the formatter.
 - Generated `out/extension.js` is the packaged entry point. `scripts/package-vsix.mjs` packages only an allowlist derived from `package.json` (compiled `out/**/*.js` except tests, language configuration, grammars, README, CHANGELOG, LICENSE); `.vscodeignore` only matters if vsce is ever run directly.
 
@@ -42,5 +43,5 @@ Keep external dependencies to the minimum. The only devDependencies are `typescr
 - Keep formatting idempotent: one pass must converge, especially for nested closures, mappings, multisets, lambdas, continuation lines, and closing sequences such as `}));`.
 - Grammar rule order prevents overlapping regexes. Keep operators ordered from specific to general (arrow, compound assignment, shifts, comparison, logical, bitwise, arithmetic, bare assignment, ternary), and keep float matching before decimal matching. Recursive LPC structures and lambdas use `$self`.
 - A single quote starts LPC character, symbol, or function-reference syntax. Do not add single-quote auto-closing; it intentionally appears only as a surrounding pair.
-- LPC type and modifier lists are centralized as formatter regex constants but remain duplicated in the TextMate grammar. When adding one, update both `syntaxes/lpc.tmGrammar.json` and `src/formatProvider.ts`, including cast, declaration, and closure post-processing patterns.
+- LPC type and modifier lists are centralized as formatter regex constants but remain duplicated in the TextMate grammar. When adding one, update both `syntaxes/lpc.tmGrammar.json` and `src/formatter.ts`, including cast, declaration, and closure post-processing patterns.
 - Formatter settings must stay synchronized between `package.json` contributions and the reads in both formatting-provider entry points.
