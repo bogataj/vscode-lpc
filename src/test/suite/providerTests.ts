@@ -111,6 +111,31 @@ export const providerTests: TestCase[] = [
         }
     },
     {
+        name: 'c files stay C until the workspace opts in to LPC',
+        run: async () => {
+            const folder = vscode.workspace.workspaceFolders?.[0];
+            assert.ok(folder, 'The test host should open a workspace folder.');
+            const files = vscode.workspace.getConfiguration('files');
+            const openC = async (name: string): Promise<string> => {
+                const uri = vscode.Uri.joinPath(folder.uri, name);
+                await vscode.workspace.fs.writeFile(uri, Buffer.from('int main() { return 0; }\n'));
+                return (await vscode.workspace.openTextDocument(uri)).languageId;
+            };
+
+            try {
+                assert.notStrictEqual(await openC('before.c'), 'lpc');
+
+                assert.strictEqual(await vscode.commands.executeCommand('lpc.associateCFiles'), true);
+                const associations = files.inspect<Record<string, string>>('associations')?.workspaceValue;
+                assert.strictEqual(associations?.['*.c'], 'lpc');
+                assert.strictEqual(associations?.['*.h'], 'lpc');
+                assert.strictEqual(await openC('after.c'), 'lpc');
+            } finally {
+                await files.update('associations', undefined, vscode.ConfigurationTarget.Workspace);
+            }
+        }
+    },
+    {
         name: 'provider formats untitled LPC documents',
         run: async () => {
             const document = await vscode.workspace.openTextDocument({ language: 'lpc', content: unformatted });

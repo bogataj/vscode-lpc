@@ -33,7 +33,7 @@
     "languages": [{
       "id": "lpc",
       "aliases": ["LPC", "lpc", "LDMud"],
-      "extensions": [".c", ".h", ".lpc"],
+      "extensions": [".lpc"],
       "configuration": "./language-configuration.json"
     }],
     "grammars": [{
@@ -41,15 +41,29 @@
       "scopeName": "source.lpc",
       "path": "./syntaxes/lpc.tmGrammar.json"
     }],
-    "commands": [{
-      "command": "lpc.format",
-      "title": "Format LPC Code"
-    }],
-    "menus": {
-      "commandPalette": [{
+    "commands": [
+      {
         "command": "lpc.format",
-        "when": "editorLangId == lpc"
-      }]
+        "title": "Format LPC Code",
+        "category": "LPC"
+      },
+      {
+        "command": "lpc.associateCFiles",
+        "title": "Treat .c/.h Files as LPC in This Workspace",
+        "category": "LPC"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "lpc.format",
+          "when": "editorLangId == lpc"
+        },
+        {
+          "command": "lpc.associateCFiles",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
     },
     "configuration": {
       "type": "object",
