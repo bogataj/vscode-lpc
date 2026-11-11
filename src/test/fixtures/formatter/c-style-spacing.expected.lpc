@@ -1,6 +1,6 @@
 void invoke_target(object target)
 {
-    if (target)     // generic note
+    if (target) // generic note
     {
         ((object)target)->apply();
     }

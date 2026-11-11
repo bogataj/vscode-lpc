@@ -212,6 +212,64 @@ const integrationTests: TestCase[] = [
         }
     },
     {
+        name: 'range formatting keeps the context around the selection',
+        run: async () => {
+            const input = [
+                'void outer(int value) {',
+                '    switch (value) {',
+                '    case 1:',
+                '        first();',
+                '        break;',
+                '    }',
+                '    call(({',
+                '        "alpha",',
+                '        "beta",',
+                '    }));',
+                '}'
+            ].join('\n');
+            await withLpcDocument(input, document => {
+                // A case label with its body, array elements, and a continued argument are
+                // already formatted; formatting them alone must not move them.
+                assert.deepStrictEqual(rangeEdits(document, new vscode.Range(2, 0, 5, 0)), []);
+                assert.deepStrictEqual(rangeEdits(document, new vscode.Range(7, 0, 9, 0)), []);
+            });
+
+            await withLpcDocument(input.replace('        first();', 'first( );'), document => {
+                const edits = rangeEdits(document, new vscode.Range(3, 0, 3, 5));
+                assert.strictEqual(edits.length, 1);
+                assert.deepStrictEqual(edits[0].range, new vscode.Range(3, 0, 4, 0));
+                assert.strictEqual(edits[0].newText, '        first();\n');
+            });
+        }
+    },
+    {
+        name: 'range formatting compacts a function only when it is selected entirely',
+        run: async () => {
+            const input = ['int before;', 'int query_level()', '{', 'return level;', '}', 'int after;'].join('\n');
+            await withLpcDocument(input, document => {
+                const bodyEdits = rangeEdits(document, new vscode.Range(3, 0, 3, 6));
+                assert.strictEqual(bodyEdits.length, 1);
+                assert.deepStrictEqual(bodyEdits[0].range, new vscode.Range(3, 0, 4, 0));
+                assert.strictEqual(bodyEdits[0].newText, '    return level;\n');
+
+                const functionEdits = rangeEdits(document, new vscode.Range(1, 0, 5, 0));
+                assert.strictEqual(functionEdits.length, 1);
+                assert.deepStrictEqual(functionEdits[0].range, new vscode.Range(1, 0, 5, 0));
+                assert.strictEqual(functionEdits[0].newText, 'int query_level() { return level; }\n');
+            });
+        }
+    },
+    {
+        name: 'range formatting keeps CRLF line endings',
+        run: async () => {
+            await withLpcDocument('void f() {\r\nx=1;\r\ny=2;\r\n}\r\n', document => {
+                const edits = rangeEdits(document, new vscode.Range(1, 0, 3, 0));
+                assert.strictEqual(edits.length, 1);
+                assert.strictEqual(edits[0].newText, '    x = 1;\r\n    y = 2;\r\n');
+            });
+        }
+    },
+    {
         name: 'language configuration guards comment editing rules',
         run: async () => {
             interface EnterRule { beforeText: string; previousLineText?: string; action: { appendText?: string } }
@@ -260,11 +318,16 @@ const integrationTests: TestCase[] = [
             assert.ok(operatorReference.test("#'["));
             assert.ok(operatorReference.test("#'[.."));
             assert.ok(operatorReference.test("#'."));
+            for (const reference of ["#'({", "#'([", "#'[<", "#'[..<]", "#'[<..<]", "#'[<..", "#',", "#'?!"]) {
+                assert.strictEqual(operatorReference.exec(`${reference}, 'items`)?.[0], reference);
+            }
             assert.ok(functionDefinition.test('int *collect_values('));
             assert.ok(functionDefinition.test('struct result *collect_result('));
             assert.ok(functionDefinition.test('async int|string collect_values('));
             assert.ok(functionDefinition.test('int*|string* collect_values('));
             assert.ok(modifiers.test('async'));
+            assert.ok(modifiers.test('visible'));
+            assert.ok(functionDefinition.test('visible int *collect_values('));
             assert.ok(flowKeywords.test('await'));
             assert.ok(flowKeywords.test('yield'));
             assert.ok(coroutineEfuns.test('call_coroutine('));

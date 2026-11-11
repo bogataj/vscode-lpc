@@ -4,6 +4,25 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Operator closure references such as `#'({`, `#'([`, `#'[<`, `#'[..<]`, `#'[<..<]`, and `#',` stay one token: spacing no longer splits them (`#'[ <`), their brackets no longer shift the indentation of the lines after them, and they are highlighted as closures
+- A leading comma is no longer moved into a trailing `//` comment or onto a preprocessor directive, where it stopped separating the elements; it moves up only onto a plain code line, and the rest of its line is spaced in the same pass
+- Block comments keep their text: `/**` stays `/**`, lines are no longer prefixed with ` * `, text after `/*` stays on its line, and indentation inside the comment (examples, tables, commented-out code) is kept relative to the opening line. Only the comment's indentation changes; lines starting with `*` still align under the opening `/*`
+- *Format Selection* and format-on-paste use the context of the whole document, so `case` bodies, array and mapping elements, and continuation lines in a selection keep their indentation
+- The `visible` modifier is recognized by the formatter and the grammar: `visible int *query()` keeps its pointer layout and is highlighted
+- `case (1):`, `foreach (x in ({ … }))`, and `yield (x)` keep the space before the parenthesis; `case(1):` is no longer indented as a statement on the next pass
+- A sign after a cast stays attached: `(int)-1` instead of `(int) - 1`
+- Continuation lines starting with `-` or `*`, and the value of a `return` on the next line, are indented like other continuation lines
+- A multi-value mapping line ending in `;` (`"key": 1;`) no longer drops the indentation of the rest of the literal
+- The branches of a chained ternary line up instead of stepping right on every line
+- With tabs, continued strings and ternary branches are aligned again (tabs for indentation, spaces for alignment)
+- `({ … })` padding is no longer removed from arrays containing symbols or an identifier with `lambda` in its name
+
+### Changed
+- Formatting a selection inside a single-statement function leaves the function on several lines; selecting the whole function compacts it
+- A comment at the end of a line keeps its distance from the start of the code, so comments aligned in a column stay aligned; it is no longer moved to a multiple of four columns
+- Single-statement functions are only put on one line when that line is at most 80 columns wide
+
 ## [2.0.0] - 2026-10-29
 
 ### Breaking

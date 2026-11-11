@@ -1,0 +1,16 @@
+visible int *collect(int value)
+{
+return values;
+}
+void dispatch(int value) {
+switch(value) {
+case (1):
+case(2):
+handle(value);
+break;
+}
+foreach(int item in ({1,2})) handle(item);
+int offset=(int)-1;
+float scaled=(float) - value;
+int difference=(value)-1;
+}

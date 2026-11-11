@@ -1,7 +1,7 @@
 void advance() {
     write("comment\
 end"); /* note
-     * {
+{
      */
     next();
     if (value) {

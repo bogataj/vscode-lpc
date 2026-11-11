@@ -157,7 +157,7 @@
         },
         {
           "name": "entity.name.function.pointer.operator.lpc",
-          "match": "#'(?:\\[\\.\\.|\\[|[?=!<>+\\-*/%&|^~.]+)",
+          "match": "#'(?:\\[,\\]|\\[[<>]?(?:\\.\\.[<>]?\\]?)?|\\(\\{|\\(\\[|\\(<|,|[?=!<>+\\-*/%&|^~.]+)",
           "patterns": []
         },
         {
@@ -265,7 +265,7 @@
       "patterns": [
         {
           "name": "storage.modifier.lpc",
-          "match": "\\b(async|public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\b"
+          "match": "\\b(async|public|private|protected|visible|static|nomask|varargs|virtual|nosave|deprecated)\\b"
         }
       ]
     },
@@ -383,7 +383,7 @@
       "patterns": [
         {
           "name": "meta.function.lpc",
-          "match": "^\\s*((?:(?:async|public|private|protected|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*)((?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?(?:\\s*\\|\\s*(?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?)*)\\s+(\\**)\\s*(\\w+)\\s*\\(",
+          "match": "^\\s*((?:(?:async|public|private|protected|visible|static|nomask|varargs|virtual|nosave|deprecated)\\s+)*)((?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?(?:\\s*\\|\\s*(?:void|int|float|string|object|mapping|mixed|status|closure|symbol|bytes|lwobject|coroutine|lpctype|struct(?:\\s+\\w+)?)\\*?)*)\\s+(\\**)\\s*(\\w+)\\s*\\(",
           "captures": {
             "1": {
               "name": "storage.modifier.lpc"

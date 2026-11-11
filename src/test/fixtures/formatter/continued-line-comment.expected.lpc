@@ -1,5 +1,5 @@
 void test() {
-    if (ready)  // comment with { ) } \
+    if (ready) // comment with { ) } \
 this line is still a comment with } and (
         handle();
     return;

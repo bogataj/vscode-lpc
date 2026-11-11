@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { FormattedLineRange, mapFormattedLineRange } from './formatRange';
 import { LPCFormatOptions, LPCFormatter } from './formatter';
 
 export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider {
@@ -37,6 +38,10 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
         return [vscode.TextEdit.replace(fullRange, formattedText)];
     }
 
+    /**
+     * Formats the whole document, so the selection keeps its context (enclosing blocks,
+     * `switch`, open delimiters, `#if` branches), and returns the selected lines of the result.
+     */
     public provideDocumentRangeFormattingEdits(
         document: vscode.TextDocument,
         range: vscode.Range,
@@ -48,41 +53,59 @@ export class LPCDocumentFormattingEditProvider implements vscode.DocumentFormatt
             return [];
         }
 
-        const formattingRange = this.expandRangeToFullLines(document, range);
-        const prefix = document.getText(new vscode.Range(new vscode.Position(0, 0), formattingRange.start));
-        if (this.formatter.startsInsideProtectedContext(prefix)) {
-            return [];
-        }
-        const text = document.getText(formattingRange);
+        const text = document.getText();
+        const originalLines = text.split(/\r?\n/);
+        const lastSelectedLine = range.end.character === 0 && range.end.line > range.start.line
+            ? range.end.line - 1
+            : range.end.line;
         const { formatOptions, indentSize } = this.readFormatSettings(config, options);
-        const initialIndentLevel = this.formatter.getInitialIndentLevel(text, formatOptions, indentSize);
-        const formattedText = this.withDocumentLineEndings(
-            this.formatter.format(text, formatOptions, indentSize, token, initialIndentLevel),
-            document
-        );
-        if (token.isCancellationRequested || formattedText === text) {
+
+        // Compacting a function joins lines, which would pull a header or closing brace
+        // outside the selection into the edit; in that case the function keeps its layout.
+        const compactChoices = formatOptions.compactSingleStatementFunctions !== false ? [true, false] : [false];
+        let formattedLines: string[] = [];
+        let mapping: FormattedLineRange | undefined;
+        for (const compactSingleStatementFunctions of compactChoices) {
+            const formatted = this.formatter.format(
+                text,
+                { ...formatOptions, compactSingleStatementFunctions },
+                indentSize,
+                token
+            );
+            if (token.isCancellationRequested) {
+                return [];
+            }
+            formattedLines = formatted.split('\n');
+            mapping = mapFormattedLineRange(originalLines, formattedLines, range.start.line, lastSelectedLine);
+            if (!mapping || mapping.exact) {
+                break;
+            }
+        }
+        if (!mapping) {
             return [];
         }
 
-        return [vscode.TextEdit.replace(formattingRange, formattedText)];
+        const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        const hasFollowingLine = mapping.endLine + 1 < document.lineCount;
+        const replacedRange = new vscode.Range(
+            new vscode.Position(mapping.startLine, 0),
+            hasFollowingLine
+                ? new vscode.Position(mapping.endLine + 1, 0)
+                : document.lineAt(mapping.endLine).range.end
+        );
+        const formattedText = formattedLines
+            .slice(mapping.formattedStartLine, mapping.formattedEndLine + 1)
+            .join(eol) + (hasFollowingLine ? eol : '');
+        if (formattedText === document.getText(replacedRange)) {
+            return [];
+        }
+
+        return [vscode.TextEdit.replace(replacedRange, formattedText)];
     }
 
     /** The formatter emits LF; match the document so an unchanged CRLF file produces no edit. */
     private withDocumentLineEndings(text: string, document: vscode.TextDocument): string {
         return document.eol === vscode.EndOfLine.CRLF ? text.replace(/\r?\n/g, '\r\n') : text;
-    }
-
-    private expandRangeToFullLines(document: vscode.TextDocument, range: vscode.Range): vscode.Range {
-        const start = new vscode.Position(range.start.line, 0);
-        if (range.end.character === 0 && range.end.line > range.start.line) {
-            return new vscode.Range(start, range.end);
-        }
-
-        const nextLine = range.end.line + 1;
-        const end = nextLine < document.lineCount
-            ? new vscode.Position(nextLine, 0)
-            : document.lineAt(range.end.line).range.end;
-        return new vscode.Range(start, end);
     }
 
     /**

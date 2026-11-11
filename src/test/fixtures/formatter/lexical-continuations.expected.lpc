@@ -2,7 +2,7 @@
     if (value) { \
         invoke(value); }
 /*
- * #if HIDDEN_BRANCH \
+#if HIDDEN_BRANCH \
  */
 int visible = 1;
 void inspect(string value) {
@@ -11,7 +11,7 @@ void inspect(string value) {
         first,
 #else
         /*
-         * #endif
+        #endif
          */
         second,
 #endif
@@ -25,7 +25,7 @@ second" == value) {
 */ suffix");
     write("comment\
 end"); /* note
-     * {
+{
      */
     next();
 }

@@ -33,7 +33,8 @@ types), modifiers, efuns and applies (when called), closures (`#'name`, `(: :)`,
   continuation lines, and multi-line arrays, mappings, multisets, and closures.
 - Indents `case` labels at the level of their `switch` (LDMUD `-cli0` style).
 - Keeps brace placement, brace-less bodies, one-line statements, trailing commas,
-  comments, strings, and `\`-continued strings and macros as written.
+  comments, strings, and `\`-continued strings and macros as written. Block comments
+  are only re-indented, and a comment at the end of a line keeps its column.
 - Keeps the indentation context across comments, blank lines, and `#if` branches.
 - Uses C-style spacing, since LPC has no style guide of its own:
   - one space around binary and assignment operators (`a == b`, `x <<= 1`, `a ? b : c`);
@@ -42,8 +43,8 @@ types), modifiers, efuns and applies (when called), closures (`#'name`, `(: :)`,
     struct literals; `case 1:`; `foreach (x : items)`; `if (…)`, `while (…)`;
   - LPC syntax stays as written: `int|string`, `<int|string>*`, `arr[<1..<2]`,
     `#'>`, `(<Foo>`.
-- Puts functions with one simple statement on one line, such as
-  `int query_level() { return level; }` (can be turned off).
+- Puts functions with one simple statement on one line when it fits in 80 columns,
+  such as `int query_level() { return level; }` (can be turned off).
 
 ## Settings
 
@@ -52,7 +53,7 @@ types), modifiers, efuns and applies (when called), closures (`#'name`, `(: :)`,
 | `lpc.formatting.enabled` | `true` | Enable the formatter. |
 | `lpc.formatting.indentSize` | `4` | Spaces per indentation level. Takes precedence over the editor's tab size; with tabs, each level is one tab. |
 | `lpc.formatting.insertFinalNewline` | `true` | End formatted documents with a newline. |
-| `lpc.formatting.compactSingleStatementFunctions` | `true` | Put functions with a single simple statement on one line. |
+| `lpc.formatting.compactSingleStatementFunctions` | `true` | Put functions with a single simple statement on one line when it fits in 80 columns. |
 
 All settings can be set per user, workspace, or folder.
 

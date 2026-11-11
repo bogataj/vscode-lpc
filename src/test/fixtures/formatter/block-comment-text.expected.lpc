@@ -1,0 +1,19 @@
+/**
+ * Summary line.
+ *
+ * @param value   first line
+ *                second line
+ */
+void describe(int value) {
+    /* Example:
+           call(value);
+               nested(value);
+     */
+    /*
+    +-----+-----+
+    |  a  |  b  |
+    +-----+-----+
+     */
+    call(value);
+    next(value);
+}
