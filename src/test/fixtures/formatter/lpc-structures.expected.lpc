@@ -19,8 +19,7 @@ void assemble() {
     closure generated = lambda(
         ({ 'value }),
         ({
-            /*
-             * note
+            /* note
              * ((
              */
             #'identity,

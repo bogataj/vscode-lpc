@@ -1,0 +1,13 @@
+void build() {
+    closure pair = lambda(({'left, 'right}), ({#'({, 'left, 'right}));
+    closure table = lambda(({'key}), ({#'([, ({'key, 1})}));
+    closure last = lambda(({'items}), ({#'[<, 'items, 1}));
+    closure middle = lambda(({'items}), ({#'[<..<], 'items, 3, 2}));
+    closure head = lambda(({'items}), ({#'[..<], 'items, 0, 2}));
+    closure both = lambda(({'left, 'right}), ({#',, 'left, 'right}));
+    closure loop = lambda(({'count}), ({#'do, ({#'-=, 'count, 1}), 'count}));
+    mixed *operators = ({ #'({, #'([, #'[<, #'?! });
+    if (operators)
+        finish();
+    done();
+}

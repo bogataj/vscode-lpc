@@ -1,0 +1,14 @@
+void collect() {
+call(first
+, second+1
+, third);
+call(first // note
+, second);
+mixed *items = ({
+"alpha"
+#ifdef EXTRA
+, "beta"
+#endif
+, "gamma"
+});
+}

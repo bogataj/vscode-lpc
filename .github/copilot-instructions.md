@@ -24,8 +24,11 @@ Extension Host tests on an older VS Code.
 
 - `src/formatter.ts` — `LPCFormatter`, the formatter core. It must not import `vscode`.
 - `src/formatProvider.ts` — editor adapter: reads settings for the document
-  (`readFormatSettings`), expands ranges to whole lines, converts output to the
-  document's line endings, returns no edits when cancelled.
+  (`readFormatSettings`), converts output to the document's line endings, returns no
+  edits when cancelled. Range formatting formats the whole document and returns the
+  selected lines of the result.
+- `src/formatRange.ts` — `mapFormattedLineRange()`, which finds those lines by counting
+  non-whitespace characters. It must not import `vscode`.
 - `src/extension.ts` — registers the providers for `{ language: 'lpc' }` and the
   `lpc.format` and `lpc.associateCFiles` commands.
 - `syntaxes/lpc.tmGrammar.json` — highlighting only. `language-configuration.json` —
@@ -43,10 +46,16 @@ Extension Host tests on an older VS Code.
   packages for tooling that Node's standard library can cover.
 - Fixtures use neutral identifiers, focus on one behavior, must match exactly, and must
   be unchanged by a second formatting pass.
-- Never change text in strings, character literals, or comments. Quoted symbols
-  (`'name`) and closure references (`#'name`, `#'[`) are code. Use `CharacterScanner`,
-  `computeProtectedMask()`, `replaceOutsideProtectedText()`, and
-  `stripCommentsAndStrings()` rather than regexes over raw lines.
+- Formatting changes whitespace only: the non-whitespace characters of the output equal
+  those of the input, in order. The unit tests check this for every fixture, and range
+  formatting relies on it.
+- Never change text in strings, character literals, or comments. A block comment is only
+  re-indented: lines starting with `*` align under the opening `/*`, other lines keep
+  their position relative to it. Quoted symbols (`'name`) are code. Closure references
+  (`#'name`, `#'[<`, `#'({`) are single operands whose brackets are not delimiters;
+  `CharacterScanner` skips them. Use `CharacterScanner`, `computeProtectedMask()`,
+  `replaceOutsideProtectedText()`, and `stripCommentsAndStrings()` rather than regexes
+  over raw lines.
 - Treat `({ })`, `([ ])`, and `(< >)` separately from ordinary brackets and keep all
   three in sync in the bracket-stack, indentation, and continuation logic.
 - In `format()`, indentation is decided before the line updates brace, structure,
@@ -54,8 +63,11 @@ Extension Host tests on an older VS Code.
   directives must not drop an open statement or delimiter context.
 - Layout rules: brace placement is preserved; brace-less bodies stay brace-less;
   `case` labels align with their `switch`; one-line statements are kept;
-  single-statement functions are compacted unless
-  `lpc.formatting.compactSingleStatementFunctions` is false.
+  single-statement functions are compacted when the line fits in 80 columns, unless
+  `lpc.formatting.compactSingleStatementFunctions` is false. A comment that ends a
+  line keeps its distance from the start of the code. Lines aligned to a column
+  (continued strings, ternary branches) use the anchor line's tabs plus spaces when
+  indenting with tabs.
 - Spacing is C style, applied by the token pass `normalizeOperatorSpacing()`; it may
   only change whitespace between tokens and must leave LPC syntax (`int|string`,
   `<int|string>*`, `[<1..<2]`, `#'>`, `(<Foo>`) alone.

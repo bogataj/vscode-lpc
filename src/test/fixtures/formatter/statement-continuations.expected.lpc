@@ -1,0 +1,19 @@
+mapping table = ([
+    "alpha": 1; 2,
+    "beta": 3;
+    4,
+    "gamma": 5; 6
+]);
+int|string pick(int first, int second, int third) {
+    int total = first
+        - second;
+    total = total
+        * third;
+    if (total)
+        return
+            total;
+    return first ? "one"
+                 : second ? "two"
+                 : third ? "three"
+                 : "none";
+}

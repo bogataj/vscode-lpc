@@ -1,0 +1,13 @@
+string describe_short()
+{
+return "short";
+}
+string describe_long()
+{
+return "a description that is long enough to pass the width limit for one line";
+}
+mixed *symbols() {
+mixed *padded=({ 'first, 'second });
+mixed *tight=({'first,'second});
+return ({lambda_count,1});
+}

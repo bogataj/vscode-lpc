@@ -91,7 +91,7 @@
         "lpc.formatting.compactSingleStatementFunctions": {
           "type": "boolean",
           "default": true,
-          "description": "Put functions whose body is a single simple statement on one line, e.g. `int query_level() { return level; }`",
+          "description": "Put functions whose body is a single simple statement on one line when it fits in 80 columns, e.g. `int query_level() { return level; }`",
           "scope": "resource"
         }
       }

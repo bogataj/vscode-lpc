@@ -23,6 +23,10 @@ interface SpacingFrame {
     pendingTernaries: number;
     pendingCase: boolean;
     foreachHeader: boolean;
+    /** Index of the token that opened the frame. */
+    openIndex: number;
+    /** A `(` that does not follow an operand, so `(int)` there is a cast, not a parameter list. */
+    mayBeCast: boolean;
 }
 
 interface SpecialLineResult {
@@ -30,7 +34,18 @@ interface SpecialLineResult {
     output?: string | string[];
     inBlockComment?: boolean;
     blockCommentIndent?: number;
+    blockCommentShift?: number;
     updateIndentLevel?: number;
+}
+
+interface IndentLayout {
+    /** One indentation level: spaces, or a tab. */
+    indentString: string;
+    /** Columns that one indentation level occupies. */
+    levelWidth: number;
+    /** Columns a tab in the source advances to a multiple of. */
+    tabSize: number;
+    insertSpaces: boolean;
 }
 
 interface SwitchContext {
@@ -66,7 +81,7 @@ const LPC_NAMED_TYPE_PATTERN = `(?:${LPC_SIMPLE_TYPE_PATTERN}|struct(?:\\s+[A-Za
 const LPC_DECLARATION_TYPE_MEMBER_PATTERN = `${LPC_NAMED_TYPE_PATTERN}\\*?`;
 const LPC_DECLARATION_TYPE_PATTERN =
     `${LPC_DECLARATION_TYPE_MEMBER_PATTERN}(?:\\s*\\|\\s*${LPC_DECLARATION_TYPE_MEMBER_PATTERN})*`;
-const LPC_MODIFIER_PATTERN = 'async|static|private|protected|public|nomask|deprecated|varargs|virtual|nosave';
+const LPC_MODIFIER_PATTERN = 'async|static|private|protected|visible|public|nomask|deprecated|varargs|virtual|nosave';
 const LPC_FUNCTION_DECLARATION_PATTERN = new RegExp(
     `^(?:(?:${LPC_MODIFIER_PATTERN})\\s+)*(?:${LPC_DECLARATION_TYPE_PATTERN})\\s+(?:\\*+\\s*)?\\w+\\s*\\([^)]*\\)\\s*$`
 );
@@ -83,8 +98,31 @@ const SPACED_BINARY_OPERATORS = new Set([
     '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=', '>>>=', '&&=', '||='
 ]);
 const KEYWORDS_BEFORE_OPERAND = new Set(['return', 'case', 'else', 'do', 'yield', 'await', 'throw']);
-const LPC_TYPE_WORDS = new Set([...LPC_SIMPLE_TYPE_PATTERN.split('|'), 'struct']);
-const CLOSURE_REFERENCE = /^#'(?:\[\.\.|\[|[?=!<>+\-*/%&|^~.]+|[A-Za-z_]\w*(?:::[A-Za-z_]\w*)?)/;
+/** A single-statement function is put on one line only when that line is at most this wide. */
+const COMPACT_FUNCTION_MAX_WIDTH = 80;
+const LPC_TYPE_WORDS =new Set([...LPC_SIMPLE_TYPE_PATTERN.split('|'), 'struct']);
+// A closure reference is one token: `#'name`, `#'efun::name`, an operator (`#'+`, `#'?!`, `#',`),
+// an index or range (`#'[`, `#'[<`, `#'[..<]`, `#'[<..`), or a constructor (`#'({`, `#'([`).
+// Its brackets are not delimiters. Sticky, so it is matched at a given position.
+const CLOSURE_REFERENCE = new RegExp(
+    "#'(?:"
+    + '\\[,\\]|\\[[<>]?(?:\\.\\.[<>]?\\]?)?|\\(\\{|\\(\\[|\\(<'
+    + '|>>>=|<<=|>>=|>>>|&&=|\\|\\|=|\\.\\.\\.|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^='
+    + '|\\+\\+|--|&&|\\|\\||==|!=|<=|>=|<<|>>|\\?!|->|\\.\\.|[-+*/%&|^~!<>=?.,]'
+    + '|(?:::)?[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)?'
+    + ')',
+    'y'
+);
+
+/** Length of the closure reference starting at `index`, or 0 when there is none. */
+function closureReferenceLength(line: string, index: number): number {
+    if (line[index] !== '#' || line[index + 1] !== "'") {
+        return 0;
+    }
+    CLOSURE_REFERENCE.lastIndex = index;
+    return CLOSURE_REFERENCE.exec(line)?.[0].length ?? 0;
+}
+
 const NUMBER_LITERAL = /^(?:0[xX][0-9a-fA-F]+|0[bB][01]+|(?:\d+(?:\.(?!\.)\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/;
 
 // Prevents binary +/- spacing from splitting the exponent of a float literal such as 1.5e-3.
@@ -95,6 +133,11 @@ class CharacterScanner {
     inString = false;
     inLineComment = false;
     inBlockComment = false;
+    /** True while the character just processed belongs to a closure reference such as `#'[<`. */
+    inClosureReference = false;
+    /** Index in the line where that closure reference starts. */
+    closureStart = -1;
+    private closureCharsLeft = 0;
     private stringDelimiter: '"' | "'" | null = null;
 
     /** Process one character, updating state. */
@@ -122,6 +165,20 @@ class CharacterScanner {
             return { skip: true, skipNext: false };
         }
 
+        if (this.closureCharsLeft > 0) {
+            this.closureCharsLeft--;
+            return { skip: true, skipNext: false };
+        }
+        this.inClosureReference = false;
+
+        const closureLength = closureReferenceLength(line, index);
+        if (closureLength > 0) {
+            this.inClosureReference = true;
+            this.closureStart = index;
+            this.closureCharsLeft = closureLength - 1;
+            return { skip: true, skipNext: false };
+        }
+
         if (char === '"' || (char === "'" && this.isCharacterLiteralStart(line, index))) {
             this.inString = true;
             this.stringDelimiter = char;
@@ -143,6 +200,8 @@ class CharacterScanner {
 
     startLine(): void {
         this.inLineComment = false;
+        this.inClosureReference = false;
+        this.closureCharsLeft = 0;
     }
 
     clone(): CharacterScanner {
@@ -150,6 +209,9 @@ class CharacterScanner {
         scanner.inString = this.inString;
         scanner.inLineComment = this.inLineComment;
         scanner.inBlockComment = this.inBlockComment;
+        scanner.inClosureReference = this.inClosureReference;
+        scanner.closureStart = this.closureStart;
+        scanner.closureCharsLeft = this.closureCharsLeft;
         scanner.stringDelimiter = this.stringDelimiter;
         return scanner;
     }
@@ -187,82 +249,28 @@ export interface FormatCancellation {
  * plain Node tests, and benchmarks all exercise the same code.
  */
 export class LPCFormatter {
-    /** Whether the text before a range start leaves it inside a string, comment, or continued directive. */
-    public startsInsideProtectedContext(prefix: string): boolean {
-        if (prefix.length === 0) {
-            return false;
-        }
-
-        const lines = prefix.split(/\r?\n/);
-        const scanner = new CharacterScanner();
-        for (const line of lines) {
-            scanner.startLine();
-            for (let index = 0; index < line.length; index++) {
-                const { skipNext } = scanner.processChar(line, index);
-                if (skipNext) {
-                    index++;
-                }
-            }
-        }
-
-        const preprocessor = this.analyzePreprocessorLines(lines);
-        return scanner.inString
-            || scanner.inBlockComment
-            || preprocessor.continuationLines[lines.length - 1]
-            || preprocessor.lineCommentContinuationLines[lines.length - 1];
-    }
-
-    public getInitialIndentLevel(code: string, options: LPCFormatOptions, indentSize: number): number {
-        const lines = code.split(/\r?\n/);
-        const preprocessor = this.analyzePreprocessorLines(lines);
-        const firstContentLine = lines.find((line, index) => {
-            const trimmed = line.trim();
-            return trimmed.length > 0
-                && !preprocessor.continuationLines[index]
-                && !preprocessor.lineCommentContinuationLines[index]
-                && !/^#(?!')/.test(trimmed);
-        }) ?? lines.find(line => line.trim().length > 0);
-        if (!firstContentLine) {
-            return 0;
-        }
-
-        const leadingWhitespace = firstContentLine.match(/^[\t ]*/)?.[0] ?? '';
-        if (!options.insertSpaces) {
-            const tabCount = (leadingWhitespace.match(/\t/g) || []).length;
-            const spaceCount = (leadingWhitespace.match(/ /g) || []).length;
-            const baseIndent = tabCount + Math.floor(spaceCount / indentSize);
-            const startsWithClosingBrace = firstContentLine.trimStart().startsWith('}')
-                && !firstContentLine.trimStart().match(/^}\s*[)\]>]/);
-            return baseIndent + (startsWithClosingBrace ? 1 : 0);
-        }
-
-        let columns = 0;
-        for (const char of leadingWhitespace) {
-            columns += char === '\t' ? options.tabSize : 1;
-        }
-
-        const baseIndent = Math.floor(columns / indentSize);
-        const startsWithClosingBrace = firstContentLine.trimStart().startsWith('}')
-            && !firstContentLine.trimStart().match(/^}\s*[)\]>]/);
-        return baseIndent + (startsWithClosingBrace ? 1 : 0);
-    }
-
     public format(
         code: string,
         options: LPCFormatOptions,
         indentSize: number,
-        token?: FormatCancellation,
-        initialIndentLevel = 0
+        token?: FormatCancellation
     ): string {
         const indentString = options.insertSpaces
             ? ' '.repeat(indentSize)
             : '\t';
-        
+        const tabSize = Math.max(1, Math.floor(options.tabSize) || 1);
+        const layout: IndentLayout = {
+            indentString,
+            levelWidth: options.insertSpaces ? indentSize : tabSize,
+            tabSize,
+            insertSpaces: options.insertSpaces
+        };
+
         const lines = this.preprocessLines(code.split(/\r?\n/));
         const unbracedIndentDepths = this.analyzeControlFlow(lines);
         
         let result: string[] = [];
-        let indentLevel = initialIndentLevel;
+        let indentLevel = 0;
         const switchStack: SwitchContext[] = [];
         let previousLineNeedsContinuation = false;
         let previousCurrentIndent = 0;
@@ -272,6 +280,9 @@ export class LPCFormatter {
         const lpcStructureStack: LPCStructureDelimiter[] = [];
         let inBlockComment = false;
         let blockCommentIndent = 0;
+        // Columns the line that opened the current block comment moved by; lines of the
+        // comment that do not start with `*` move by the same amount.
+        let blockCommentShift = 0;
         let lpcDataStructureDepth = 0;
         const bracketStack: BracketInfo[] = [];
         let preprocessorIndentStack: number[] = [];
@@ -280,6 +291,9 @@ export class LPCFormatter {
         let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         let pendingForHeader = false;
+        // Index in `result` of the last line emitted as code, as opposed to a comment,
+        // blank line, directive, or the continuation of a string or macro.
+        let lastCodeLineIndex = -1;
 
         for (let i = 0; i < lines.length; i++) {
             if (token?.isCancellationRequested) {
@@ -313,6 +327,7 @@ export class LPCFormatter {
                 if (continuationScanner.inBlockComment) {
                     inBlockComment = true;
                     blockCommentIndent = previousCurrentIndent;
+                    blockCommentShift = 0;
                 }
                 const structureCounts = this.countBracesAndStructures(
                     continuedString.code,
@@ -397,14 +412,15 @@ export class LPCFormatter {
             }
             
             const specialLineResult = this.handleSpecialLine(
-                trimmed, 
+                line,
                 indentLevel,
                 {
                     inBlockComment,
                     blockCommentIndent,
+                    blockCommentShift,
                     preprocessorIndentStack
                 },
-                indentString,
+                layout,
                 specialIndent
             );
             
@@ -422,6 +438,9 @@ export class LPCFormatter {
                 }
                 if (specialLineResult.blockCommentIndent !== undefined) {
                     blockCommentIndent = specialLineResult.blockCommentIndent;
+                }
+                if (specialLineResult.blockCommentShift !== undefined) {
+                    blockCommentShift = specialLineResult.blockCommentShift;
                 }
                 if (specialLineResult.updateIndentLevel !== undefined) {
                     indentLevel = specialLineResult.updateIndentLevel;
@@ -477,7 +496,7 @@ export class LPCFormatter {
             const previousLine = i > 0 ? lines[i - 1].trim() : '';
             let usesStringContinuationColumn = false;
             
-            if (activeSwitch && trimmed.match(/^(case\s+.*:|default\s*:)/)) {
+            if (activeSwitch && trimmed.match(/^(case\b.*:|default\s*:)/)) {
                 currentIndent = activeSwitch.indentLevel;
                 activeSwitch.lastLineWasCaseLabel = true;
                 activeSwitch.inCaseBody = true;
@@ -576,7 +595,7 @@ export class LPCFormatter {
                 activeSwitch.lastLineWasCaseLabel = false;
             }
 
-            if (activeSwitch && !trimmed.match(/^(case\s+.*:|default\s*:)/)) {
+            if (activeSwitch && !trimmed.match(/^(case\b.*:|default\s*:)/)) {
                 activeSwitch.lastLineWasCaseLabel = false;
                 if (trimmed === 'break;') {
                     activeSwitch.inCaseBody = false;
@@ -586,9 +605,7 @@ export class LPCFormatter {
             let spaces = indentString.repeat(currentIndent);
             
             if (usesStringContinuationColumn) {
-                spaces = options.insertSpaces
-                    ? ' '.repeat(stringContinuationColumn)
-                    : stringContinuationPrefix || indentString.repeat(currentIndent);
+                spaces = this.alignmentIndent(stringContinuationColumn, stringContinuationPrefix, options.insertSpaces);
                 if (!trimmed.endsWith('+')) {
                     stringContinuationColumn = -1;
                     stringContinuationPrefix = '';
@@ -598,14 +615,30 @@ export class LPCFormatter {
                 stringContinuationPrefix = '';
             }
 
+            // A comment that ends the line keeps its distance from the start of the code,
+            // so comments aligned in a column stay aligned.
             let codepart = trimmed;
             let commentPart = '';
-            const lineCommentIndex = this.findFirstLineCommentOutsideStrings(trimmed);
-            if (lineCommentIndex >= 0) {
-                codepart = trimmed.substring(0, lineCommentIndex).trim();
-                commentPart = ' ' + trimmed.substring(lineCommentIndex);
+            let commentOffset = 0;
+            const commentIndex = this.findTrailingCommentStart(trimmed);
+            if (commentIndex >= 0) {
+                const codeStart = line.length - line.trimStart().length;
+                codepart = trimmed.substring(0, commentIndex).trim();
+                commentPart = trimmed.substring(commentIndex);
+                commentOffset = this.visualColumn(line, codeStart + commentIndex, tabSize)
+                    - this.visualColumn(line, codeStart, tabSize);
             }
-            
+
+            // A leading comma moves up to the element it follows, but only onto a plain code
+            // line: appended to a comment or a directive it would no longer separate anything.
+            const movesLeadingComma = codepart.startsWith(',')
+                && lastCodeLineIndex >= 0
+                && lastCodeLineIndex === result.length - 1
+                && this.findFirstCommentOutsideStrings(result[lastCodeLineIndex]) < 0;
+            if (movesLeadingComma) {
+                codepart = codepart.substring(1).trimStart();
+            }
+
             let normalizedTrimmed = this.normalizeSpacing(
                 codepart,
                 lpcStructureStack[lpcStructureStack.length - 1]
@@ -616,15 +649,20 @@ export class LPCFormatter {
             
             if (previousHasTernary && currentStartsWithColon && result.length > 0) {
                 const prevFullLine = result[result.length - 1];
-                const questionPos = prevFullLine.indexOf('?');
-                if (questionPos >= 0) {
-                    spaces = options.insertSpaces
-                        ? ' '.repeat(questionPos)
-                        : prevFullLine.match(/^[\t ]*/)?.[0] || indentString.repeat(currentIndent);
+                const prevLeading = prevFullLine.match(/^[\t ]*/)?.[0] ?? '';
+                const prevCode = this.stripCommentsAndStrings(prevFullLine);
+                const questionPos = prevCode.indexOf('?');
+                if (prevCode.trimStart().startsWith(':') && !this.hasUnclosedBrackets(prevCode)) {
+                    // The next branch of a chained ternary lines up with the previous one.
+                    spaces = prevLeading;
+                } else if (questionPos >= 0) {
+                    spaces = this.alignmentIndent(questionPos, prevLeading, options.insertSpaces);
                 }
             }
-            
-            const finalTrimmed = this.alignInlineComment(normalizedTrimmed, commentPart);
+
+            const finalTrimmed = normalizedTrimmed
+                ? this.alignInlineComment(normalizedTrimmed, commentPart, commentOffset)
+                : commentPart;
 
             const formattedLine = finalTrimmed ? spaces + finalTrimmed : '';
             const continuesLineComment = this.hasContinuedLineComment(trimmed, inBlockComment);
@@ -636,15 +674,16 @@ export class LPCFormatter {
                 }
             }
 
-            if (trimmed.startsWith(',') && result.length > 0) {
-                result[result.length - 1] = result[result.length - 1] + ',';
-                const withoutLeadingComma = trimmed.substring(1).trim();
-                const fixedLine = spaces + withoutLeadingComma;
-                result.push(fixedLine);
+            if (movesLeadingComma) {
+                result[lastCodeLineIndex] += ',';
+                if (formattedLine) {
+                    result.push(formattedLine);
+                }
             } else {
                 result.push(formattedLine);
             }
-            
+            lastCodeLineIndex = result.length - 1;
+
             // Check if this line starts a backslash string continuation
             // This happens when a line ends with \ inside a string
             if (this.endsWithBackslashInString(trimmed)) {
@@ -668,16 +707,22 @@ export class LPCFormatter {
             if (lineScanner.inBlockComment) {
                 inBlockComment = true;
                 blockCommentIndent = currentIndent;
+                blockCommentShift = this.leadingColumns(formattedLine, tabSize) - this.leadingColumns(line, tabSize);
             }
 
+            const { openBraceCount, closeBraceCount, openingCount, closingCount } =
+                this.countBracesAndStructures(trimmed, leadingCloseBraceHandled, lpcStructureStack);
+
             const isInsideForHeader = bracketStack.some(bracket => bracket.preservesSemicolons);
-            if ((trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/)) && !isInsideForHeader) {
+            // In a mapping literal a `;` separates the values of a key; it does not end the statement.
+            const separatesMappingValues = lpcStructureStack[lpcStructureStack.length - 1] === ']'
+                && bracketStack[bracketStack.length - 1]?.char === '(';
+            if ((trimmed.endsWith(';') || trimmed.match(/;\s*(\/\/|\/\*)/))
+                && !isInsideForHeader && !separatesMappingValues) {
                 bracketStack.length = 0;
                 lpcStructureIndentStack.length = 0;
             }
 
-            const { openBraceCount, closeBraceCount, openingCount, closingCount} = 
-                this.countBracesAndStructures(trimmed, leadingCloseBraceHandled, lpcStructureStack);
             const netLPCChange = openingCount - closingCount;
             
             const netBraces = openBraceCount - closeBraceCount;
@@ -714,7 +759,7 @@ export class LPCFormatter {
 
         result = this.postProcessMultiLinePatterns(result);
         if (options.compactSingleStatementFunctions !== false) {
-            result = this.compactSingleStatementFunctions(result);
+            result = this.compactSingleStatementFunctions(result, tabSize);
         }
 
         return result.join('\n');
@@ -1464,6 +1509,12 @@ export class LPCFormatter {
                     stringDelimiter = "'";
                     continue;
                 }
+                // `#'while`, `#'({` and the like are operands, not keywords or delimiters.
+                const closureLength = closureReferenceLength(line, index);
+                if (closureLength > 0) {
+                    index += closureLength - 1;
+                    continue;
+                }
 
                 if (/[A-Za-z_]/.test(char)) {
                     let end = index + 1;
@@ -1492,16 +1543,19 @@ export class LPCFormatter {
     }
 
     private handleSpecialLine(
-        trimmed: string,
+        line: string,
         indentLevel: number,
         state: {
             inBlockComment: boolean;
             blockCommentIndent: number;
+            blockCommentShift: number;
             preprocessorIndentStack: number[];
         },
-        indentString: string = '    ',
+        layout: IndentLayout,
         contentIndentLevel = indentLevel
     ): SpecialLineResult {
+        const trimmed = line.trim();
+
         if (!state.inBlockComment && trimmed.startsWith('#') && !trimmed.startsWith("#'")) {
             let newIndentLevel: number | undefined;
             const directive = trimmed.match(
@@ -1528,94 +1582,90 @@ export class LPCFormatter {
                 output: trimmed,
                 inBlockComment: opensBlockComment ? true : undefined,
                 blockCommentIndent: opensBlockComment ? 0 : undefined,
+                blockCommentShift: opensBlockComment ? -this.leadingColumns(line, layout.tabSize) : undefined,
                 updateIndentLevel: newIndentLevel
             };
         }
 
-        if (!state.inBlockComment && trimmed.includes('/*')) {
-            const startPos = trimmed.indexOf('/*');
-
-            // Don't treat /* inside strings as block comments
-            if (this.isInsideString(trimmed, startPos)) {
-                return { handled: false };
-            }
-
-            // If there's code before /*, let the normal formatter handle the line;
-            // the main loop will detect the unclosed block comment via character tracking
-            if (startPos > 0) {
-                return { handled: false };
-            }
-
-            const endPos = trimmed.indexOf('*/', startPos + 2);
+        // Comment text is never rewritten; a block comment is only moved to its indentation.
+        if (!state.inBlockComment && trimmed.startsWith('/*')) {
+            const endPos = trimmed.indexOf('*/', 2);
+            const spaces = layout.indentString.repeat(contentIndentLevel);
             if (endPos >= 0 && trimmed.lastIndexOf('*/') === trimmed.length - 2) {
-                const spaces = indentString.repeat(contentIndentLevel);
                 return {
                     handled: true,
                     output: spaces + trimmed
                 };
             }
             if (endPos === -1) {
-                const spaces = indentString.repeat(contentIndentLevel);
-                const afterComment = trimmed.substring(startPos + 2).trim();
+                return {
+                    handled: true,
+                    output: spaces + trimmed,
+                    inBlockComment: true,
+                    blockCommentIndent: contentIndentLevel,
+                    blockCommentShift: contentIndentLevel * layout.levelWidth
+                        - this.leadingColumns(line, layout.tabSize)
+                };
+            }
+        }
 
-                if (afterComment.length > 0) {
-                    return {
-                        handled: true,
-                        output: [spaces + '/*', spaces + ' * ' + afterComment],
-                        inBlockComment: true,
-                        blockCommentIndent: contentIndentLevel
-                    };
-                } else {
-                    return {
-                        handled: true,
-                        output: spaces + '/*',
-                        inBlockComment: true,
-                        blockCommentIndent: contentIndentLevel
-                    };
-                }
-            }
-        }
-        
         if (state.inBlockComment) {
-            const spaces = indentString.repeat(state.blockCommentIndent);
-            let formattedComment = trimmed;
-            
-            if (trimmed.startsWith('*') && !trimmed.startsWith('*/')) {
-                formattedComment = ' * ';
-                const textAfterAsterisk = trimmed.substring(1).trim();
-                if (textAfterAsterisk.length > 0) {
-                    formattedComment += textAfterAsterisk;
-                }
-            } else if (trimmed.startsWith('*/')) {
-                formattedComment = ' */';
-            } else if (trimmed.length > 0) {
-                formattedComment = ' * ' + trimmed;
+            let output = '';
+            if (trimmed.startsWith('*')) {
+                // Conventional layout: the asterisk sits under the one in the opening `/*`.
+                output = layout.indentString.repeat(state.blockCommentIndent) + ' ' + trimmed;
+            } else if (trimmed) {
+                // Anything else keeps its position relative to the opening line.
+                const columns = Math.max(0, this.leadingColumns(line, layout.tabSize) + state.blockCommentShift);
+                output = this.indentationForColumns(columns, state.blockCommentIndent, layout) + trimmed;
             }
-            
-            const isClosing = trimmed.includes('*/');
+
             return {
                 handled: true,
-                output: spaces + formattedComment,
-                inBlockComment: !isClosing
+                output,
+                inBlockComment: !trimmed.includes('*/')
             };
         }
-        
+
         if (trimmed.startsWith('//')) {
-            const spaces = indentString.repeat(contentIndentLevel);
             return {
                 handled: true,
-                output: spaces + trimmed
+                output: layout.indentString.repeat(contentIndentLevel) + trimmed
             };
         }
-        
+
         if (!trimmed) {
             return {
                 handled: true,
                 output: ''
             };
         }
-        
+
         return { handled: false };
+    }
+
+    /** Width of the leading whitespace of `text` in columns, with tabs advancing to tab stops. */
+    private leadingColumns(text: string, tabSize: number): number {
+        let columns = 0;
+        for (const char of text) {
+            if (char === '\t') {
+                columns += tabSize - (columns % tabSize);
+            } else if (char === ' ') {
+                columns++;
+            } else {
+                break;
+            }
+        }
+        return columns;
+    }
+
+    /** Leading whitespace `columns` wide: with tabs, at most `maxLevels` tabs and the rest as spaces. */
+    private indentationForColumns(columns: number, maxLevels: number, layout: IndentLayout): string {
+        if (layout.insertSpaces) {
+            return ' '.repeat(columns);
+        }
+        const tabs = Math.min(maxLevels, Math.floor(columns / layout.levelWidth));
+        return '\t'.repeat(tabs) + ' '.repeat(columns - tabs * layout.levelWidth);
     }
 
     private normalizeSpacing(code: string, enclosingStructure?: LPCStructureDelimiter): string {
@@ -1624,13 +1674,13 @@ export class LPCFormatter {
         normalized = this.replaceOutsideProtectedText(
             normalized,
             /\b([A-Za-z_]\w*)\s+\(/g,
-            (_match, identifier) => /^(?:if|for|foreach|while|switch|return)$/.test(identifier)
+            (_match, identifier) => /^(?:if|for|foreach|while|switch|return|case|in|yield|await)$/.test(identifier)
                 ? `${identifier} (`
                 : `${identifier}(`
         );
         normalized = this.replaceOutsideProtectedText(
             normalized,
-            /\b(if|for|foreach|while|switch)\s*\(/g,
+            /\b(if|for|foreach|while|switch|case)\s*\(/g,
             '$1 ('
         );
         normalized = this.replaceOutsideProtectedText(normalized, /\s*->\s*/g, '->');
@@ -1739,6 +1789,8 @@ export class LPCFormatter {
         // separators[i] is the whitespace to place before tokens[i]; undefined keeps the original.
         const separators: Array<string | undefined> = new Array(tokens.length).fill(undefined);
         const operandEnds = new Array<boolean>(tokens.length).fill(false);
+        // Closing parentheses of casts such as `(int)`; what follows is the operand of the cast.
+        const castEnds = new Array<boolean>(tokens.length).fill(false);
         const spaceAround = (index: number): void => {
             if (index > 0) {
                 separators[index] = ' ';
@@ -1779,6 +1831,8 @@ export class LPCFormatter {
                 case '(': {
                     const paren = this.createSpacingFrame('paren');
                     paren.foreachHeader = previousToken?.text === 'foreach';
+                    paren.openIndex = index;
+                    paren.mayBeCast = !afterOperand;
                     frames.push(paren);
                     break;
                 }
@@ -1802,10 +1856,12 @@ export class LPCFormatter {
                     break;
                 case ')':
                 case ':)':
+                    castEnds[index] = token.text === ')' && frame.kind === 'paren' && frame.mayBeCast
+                        && this.isTypeExpression(tokens, frame.openIndex + 1, index);
                     if (frames.length > 1) {
                         frames.pop();
                     }
-                    operandEnds[index] = true;
+                    operandEnds[index] = !castEnds[index];
                     break;
                 case ']':
                     if (frame.kind === 'index' && frames.length > 1) {
@@ -1888,6 +1944,14 @@ export class LPCFormatter {
                 case '-':
                 case '+':
                 case '&':
+                    if (previous >= 0 && castEnds[previous]) {
+                        // A sign after a cast is unary and stays attached: `(int)-1`.
+                        separators[index] = '';
+                        if (nextToken) {
+                            separators[index + 1] = '';
+                        }
+                        break;
+                    }
                     if (previous < 0) {
                         // A leading operator on a continuation line may be binary; keep it as written.
                         break;
@@ -1936,8 +2000,27 @@ export class LPCFormatter {
         return result;
     }
 
+    /** Whether tokens[start..end) spell a type such as `int`, `string*`, `int|string`, or `struct Name`. */
+    private isTypeExpression(tokens: SpacingToken[], start: number, end: number): boolean {
+        let sawType = false;
+        let previousText = '';
+        for (let index = start; index < end; index++) {
+            const token = tokens[index];
+            if (token.kind === 'comment') {
+                continue;
+            }
+            if (token.kind === 'word' && (LPC_TYPE_WORDS.has(token.text) || previousText === 'struct')) {
+                sawType = true;
+            } else if (token.kind !== 'punct' || !'*|<>'.includes(token.text)) {
+                return false;
+            }
+            previousText = token.text;
+        }
+        return sawType;
+    }
+
     private createSpacingFrame(kind: SpacingFrame['kind']): SpacingFrame {
-        return { kind, pendingTernaries: 0, pendingCase: false, foreachHeader: false };
+        return { kind, pendingTernaries: 0, pendingCase: false, foreachHeader: false, openIndex: -1, mayBeCast: false };
     }
 
     /** Whether removing the whitespace between two tokens would change how they tokenize. */
@@ -1975,12 +2058,8 @@ export class LPCFormatter {
                 continue;
             }
 
+            // Closure references are protected text, so they arrive above as operands.
             const rest = code.slice(index);
-            const closureReference = CLOSURE_REFERENCE.exec(rest);
-            if (closureReference) {
-                push(closureReference[0], 'operand');
-                continue;
-            }
             const symbol = /^'+[A-Za-z_]\w*/.exec(rest) ?? /^\$\d+/.exec(rest);
             if (symbol) {
                 push(symbol[0], 'operand');
@@ -2241,25 +2320,67 @@ export class LPCFormatter {
         return -1;
     }
 
-    private alignInlineComment(normalizedCode: string, commentPart: string): string {
-        if (!commentPart) {
-            return normalizedCode;
+    /**
+     * Appends a trailing comment `sourceOffset` columns after the start of the code, where
+     * it was in the source, or one space after the code when the code now reaches that far.
+     */
+    private alignInlineComment(code: string, comment: string, sourceOffset: number): string {
+        if (!comment) {
+            return code;
         }
-        
-        const trimmedCode = normalizedCode.trim();
-        const codeLength = trimmedCode.length;
-        
-        if (trimmedCode.endsWith('{')) {
-            return normalizedCode + ' ' + commentPart.trim();
+        return code + ' '.repeat(Math.max(1, sourceOffset - code.length)) + comment;
+    }
+
+    /**
+     * Index of the comment that ends the line: the first comment followed only by whitespace
+     * and further comments. An unclosed block comment counts. Returns -1 when the line ends in code.
+     */
+    private findTrailingCommentStart(line: string): number {
+        const scanner = new CharacterScanner();
+        let start = -1;
+
+        for (let index = 0; index < line.length; index++) {
+            const char = line[index];
+            const nextChar = index + 1 < line.length ? line[index + 1] : '';
+            const inComment = scanner.inLineComment || scanner.inBlockComment;
+            const opensComment = !inComment && !scanner.inString
+                && char === '/' && (nextChar === '/' || nextChar === '*');
+            const { skip, skipNext } = scanner.processChar(line, index);
+
+            if (opensComment && skip && !scanner.inClosureReference) {
+                if (start < 0) {
+                    start = index;
+                }
+            } else if (!inComment && char !== ' ' && char !== '\t') {
+                start = -1;
+            }
+            if (skipNext) {
+                index++;
+            }
         }
-        
-        const indent = normalizedCode.length - codeLength;
-        const minSpacing = 2;
-        const targetColumn = Math.ceil((codeLength + minSpacing) / 4) * 4;
-        const targetPosition = indent + targetColumn;
-        const spacesNeeded = Math.max(minSpacing, targetPosition - normalizedCode.length);
-        
-        return normalizedCode + ' '.repeat(spacesNeeded) + commentPart.trim();
+
+        return start;
+    }
+
+    /** Column of `text[index]`, with tabs advancing to tab stops. */
+    private visualColumn(text: string, index: number, tabSize: number): number {
+        let column = 0;
+        for (let position = 0; position < index; position++) {
+            column += text[position] === '\t' ? tabSize - (column % tabSize) : 1;
+        }
+        return column;
+    }
+
+    /**
+     * Indentation that puts a line at character `column` of an anchor line. With tabs, the
+     * anchor's leading tabs are kept and the rest is spaces, so it lines up at any tab width.
+     */
+    private alignmentIndent(column: number, anchorIndentation: string, insertSpaces: boolean): string {
+        if (insertSpaces) {
+            return ' '.repeat(column);
+        }
+        const tabs = anchorIndentation.match(/^\t*/)?.[0] ?? '';
+        return tabs + ' '.repeat(Math.max(0, column - tabs.length));
     }
 
     private updateBracketStack(
@@ -2307,10 +2428,6 @@ export class LPCFormatter {
             }
 
             if (char === ')' && (previousChar === '}' || previousChar === ']' || previousChar === '>')) {
-                continue;
-            }
-
-            if (char === '[' && column >= 2 && line[column - 1] === '\'' && line[column - 2] === '#') {
                 continue;
             }
 
@@ -2420,18 +2537,6 @@ export class LPCFormatter {
         return line.substring(index + 2 + typeMatch[0].length).trimStart().charAt(0) !== ')';
     }
 
-    private isInsideString(line: string, position: number): boolean {
-        const scanner = new CharacterScanner();
-        for (let i = 0; i < position; i++) {
-            const { skipNext } = scanner.processChar(line, i);
-            if (skipNext) {
-                i++;
-            }
-        }
-
-        return scanner.inString;
-    }
-
     private findLastStringLiteralStart(line: string): number {
         const scanner = new CharacterScanner();
         let lastStart = -1;
@@ -2453,10 +2558,6 @@ export class LPCFormatter {
 
     private findFirstCommentOutsideStrings(line: string): number {
         return this.findFirstComment(line, false);
-    }
-
-    private findFirstLineCommentOutsideStrings(line: string): number {
-        return this.findFirstComment(line, true);
     }
 
     private hasContinuedLineComment(line: string, inBlockComment = false): boolean {
@@ -2669,14 +2770,7 @@ export class LPCFormatter {
         let inLineCommentContinuation = false;
         let inPreprocessorContinuation = false;
         const analysisScanner = new CharacterScanner();
-        const isClosureContent = (content: string): boolean => {
-            const trimmedContent = content.trim();
-            if (trimmedContent.includes("#'") || trimmedContent.match(/'\w+/) || trimmedContent.includes('lambda')) {
-                return true;
-            }
-            return false;
-        };
-        
+
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i];
             const lineStartScanner = analysisScanner.clone();
@@ -2755,21 +2849,13 @@ export class LPCFormatter {
                         continue;
                     }
                     
-                    const isClosure = isClosureContent(trimmedContent);
-                    
                     processedLine += line.substring(lastIndex, match.index);
-                    
-                    if (isClosure) {
-                        const needsSpaceAfter = trimmedContent.startsWith('/*');
-                        let result = needsSpaceAfter ? `({ ${trimmedContent}` : `({${trimmedContent}`;
-                        if (result.endsWith(' ')) {
-                            result = result.slice(0, -1);
-                        }
-                        processedLine += result + '})';
-                    } else {
-                        processedLine += `({ ${trimmedContent} })`;
-                    }
-                    
+
+                    // Arrays of symbols are lambda code, written both padded and tight; they stay as written.
+                    processedLine += /'[A-Za-z_]/.test(trimmedContent)
+                        ? fullMatch
+                        : `({ ${trimmedContent} })`;
+
                     lastIndex = match.index + fullMatch.length;
                 }
                 
@@ -2784,7 +2870,7 @@ export class LPCFormatter {
         return processed;
     }
 
-    private compactSingleStatementFunctions(lines: string[]): string[] {
+    private compactSingleStatementFunctions(lines: string[], tabSize: number): string[] {
         const compacted: string[] = [];
 
         for (let index = 0; index < lines.length; index++) {
@@ -2812,9 +2898,12 @@ export class LPCFormatter {
                     && structureCounts.closeBraceCount === 0
                     && structureStack.length === 0) {
                     const indentation = header.match(/^[\t ]*/)?.[0] ?? '';
-                    compacted.push(`${indentation}${functionHeader} { ${body} }`);
-                    index = closingBraceIndex;
-                    continue;
+                    const compactedLine = `${indentation}${functionHeader} { ${body} }`;
+                    if (this.visualColumn(compactedLine, compactedLine.length, tabSize) <= COMPACT_FUNCTION_MAX_WIDTH) {
+                        compacted.push(compactedLine);
+                        index = closingBraceIndex;
+                        continue;
+                    }
                 }
             }
 
@@ -2868,8 +2957,13 @@ export class LPCFormatter {
             return false;
         }
 
+        // `return` with its value on the next line.
+        if (/(?:^|[^\w'])return$/.test(trimmedLine)) {
+            return true;
+        }
+
         if (/(?:->|>>>|&&|\|\||==|!=|<=|>=|<<|>>|\+=|-=|\*=|\/=|%=|&=|\|=|\^=|[=+\-*/%&|^<>?:])\s*$/.test(trimmedLine)
-            && !trimmedLine.match(/^\s*(case\s+|default\s*:)/)) {
+            && !trimmedLine.match(/^\s*(case\b|default\s*:)/)) {
             return true;
         }
         
@@ -2881,7 +2975,9 @@ export class LPCFormatter {
     }
 
     private startsWithContinuationOperator(line: string): boolean {
-        return /^(?:>>>|<<|>>|&&|\|\||->|==|!=|<=|>=|\+(?!\+)|\/(?![/*])|[%&|^?]|:(?!:))/.test(line);
+        // `--x`, `++x`, `::name()`, a comment, and a declarator such as `*name()` or
+        // `<int|string>* name` start a line without continuing the previous one.
+        return /^(?:>>>|<<|>>|&&|\|\||->|==|!=|<=|>=|\+(?!\+)|-(?!-)|\*(?![/A-Za-z_])|\/(?![/*])|[%&|^?=]|:(?!:))/.test(line);
     }
 
     private hasUnclosedBrackets(line: string): boolean {
@@ -2898,11 +2994,6 @@ export class LPCFormatter {
             }
 
             const char = line[i];
-
-            // Skip LPC function references like #'[ - the [ is not an actual bracket
-            if (char === '[' && i >= 2 && line[i - 1] === '\'' && line[i - 2] === '#') {
-                continue;
-            }
 
             switch (char) {
                 case '(': parens++; break;
@@ -2934,7 +3025,12 @@ export class LPCFormatter {
                 continue;
             }
             if (skip) {
-                result += line[i] === '"' ? '"' : ' ';
+                if (scanner.inClosureReference) {
+                    // Keep the `#'` marker and blank the rest, so the reference still reads as one operand.
+                    result += i - scanner.closureStart < 2 ? line[i] : '_';
+                } else {
+                    result += line[i] === '"' ? '"' : ' ';
+                }
                 continue;
             }
             result += line[i];

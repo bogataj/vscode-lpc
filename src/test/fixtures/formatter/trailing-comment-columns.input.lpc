@@ -1,0 +1,10 @@
+int count;        // number of entries
+string label;     // shown to users
+mapping cache;    /* filled lazily */
+void update() {
+count=1;          // reset
+label="text";// tight
+if(count) {   // start
+cache=([]); // short
+}
+}
