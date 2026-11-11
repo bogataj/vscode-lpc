@@ -4,6 +4,8 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-11
+
 ### Fixed
 - Operator closure references such as `#'({`, `#'([`, `#'[<`, `#'[..<]`, `#'[<..<]`, and `#',` stay one token: spacing no longer splits them (`#'[ <`), their brackets no longer shift the indentation of the lines after them, and they are highlighted as closures
 - A leading comma is no longer moved into a trailing `//` comment or onto a preprocessor directive, where it stopped separating the elements; it moves up only onto a plain code line, and the rest of its line is spaced in the same pass
