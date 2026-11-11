@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository. The project instructions are shared with
-GitHub Copilot and kept in one place:
+Guidance for Claude Code in this repository. The project instructions are shared by all
+coding agents and kept in `AGENTS.md`:
 
-@.github/copilot-instructions.md
+@AGENTS.md
