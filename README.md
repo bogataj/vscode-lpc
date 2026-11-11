@@ -81,6 +81,11 @@ Releases: after CI is green on `main`, push a `vX.Y.Z` tag matching `package.jso
 and run the **Release** workflow, which tests, packages, and publishes the GitHub
 release. Upload its `.vsix` to the Marketplace manually.
 
+Coding agents get the same instructions whichever one you use: `AGENTS.md` holds the
+conventions and the testing, pull request, and release steps. It is copied to
+`.github/copilot-instructions.md` for GitHub Copilot (`npm run sync:instructions`) and
+imported by `CLAUDE.md`.
+
 ## Links
 
 - [Changelog](https://github.com/bogataj/vscode-lpc/blob/HEAD/CHANGELOG.md)

@@ -4,6 +4,9 @@ All notable changes to the "LPC Language Support" extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- Contributor instructions for coding agents now live in `AGENTS.md`, with the testing, pull request, and release steps; GitHub Copilot and Claude Code read the same text, and a unit test keeps the copies identical
+
 ## [2.1.0] - 2026-11-11
 
 ### Fixed
